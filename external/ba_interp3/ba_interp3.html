@@ -1,0 +1,42 @@
+<html>
+  <head>
+    <title>ba_interp3 interpolation function for matlab</title>
+    <link rel="stylesheet" type="text/css" href="http://www.cs.unibas.ch/personen/amberg_brian/brian.css" />
+    <link rel="shortcut icon" href="http://www.cs.unibas.ch/personen/amberg_brian/wireframe-small.png" type="image/x-png">
+  </head>
+  <body>
+    <div class="header"><h1>Brian Amberg @ Uni-Basel</h1></div>
+    <div class="section">
+      <h2>3D Volume Interpolation with ba_interp3</h2>
+      <span class="teaser">
+        <img src="ba_interp3_small.png" alt="Fast volume interpolation with ba_interp3"><br>
+      </span>
+      <p>
+        <span class="code">ba_interp3</span> is a fast interpolation routine for 3D volumes. It can be used as a drop in replacement
+        for matlabs <span class="code">interp3</span> function. It supports nearest neighbour, tri-linear, and tri-cubic interpolation.
+      </p>
+      <p>
+        Restrictions: The only restriction is, that the data has to be on a regularly spaced
+        grid (i.e. coming from <span class="code">meshgrid</span>.</p>
+      <p>
+        Enhancements: The first advantage of <span class="code">ba_interp3</span> is that it is a lot faster:
+      </p>
+      <p>
+      <img src="ba_interp3_speed.png" alt="ba_interp3 is up to 10 times faster than matlabs interp3 in realistic scenarios">
+      </p>
+      <p>
+        Additionally, it can interpolate layered data. If you interpolate a
+        matrix of size <span class="code">MxNxO x L1xL2x...xLk</span> then each
+        of the <span class="code">L1*L2*...*Lk</span> layers is interpolated
+        simultaneously. Think of this as in RGB images, where there would be a
+        single additional dimension of size three.<br/>
+        An volume of 3x3 Matrices (i.e. the volume derivative) would have two
+        additional dimensions of size three.
+      </p>
+      <h3>Download</h3>
+      <p>
+      The code is available at <a href="http://www.cs.unibas.ch/personen/amberg_brian/ba_interp3.tar.bz"/>ba_interp3 Interpolation Code</a></p>
+  </div>
+  <p style="clear: both"></p>
+  </body>
+</html>

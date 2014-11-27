@@ -71,8 +71,12 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   also specify 'sequential' or 'interleaved' or 'interleavedalt' ---
 %   'sequential' translates into 1:S, 'interleaved' translates into 
 %   [1:2:S 2:2:S], and 'interleavedalt' translates into [2:2:S 1:2:S]
-%   when S is even and [1:2:S 2:2:S] when S is odd.  you can also set 
-%   <episliceorder> to [] which means do not perform slice time correction.
+%   when S is even and [1:2:S 2:2:S] when S is odd.  can also be {X} where 
+%   X is a vector of positive integers that specify the times at which each 
+%   slice is collected.  for example, if X is [1 2 3 1 2 3] this means that 
+%   the 1st and 4th slices were acquired first, then the 2nd and 5th slices, 
+%   and then the 3rd and 6th slices.  you can also set <episliceorder> to [] 
+%   which means do not perform slice time correction.
 % <epiphasedir> is an integer indicating the phase-encode direction or
 %   a vector of such integers.  should mirror <epis>.  if a single integer,
 %   we automatically repeat that integer for multiple <epis>.
@@ -127,7 +131,10 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   will be resampled at the new location.  for example, if <extratrans>
 %   is [1 0 0 1; 0 1 0 0; 0 0 1 0; 0 0 0 1], then this will cause volumes to be 
 %   resampled at a location corresponding to a one-voxel shift along the first
-%   dimension.  default: eye(4).
+%   dimension.  <extratrans> can also be {X} where X is 4 x vertices, indicating
+%   the exact locations (relative to the matrix space of the 3D volume) at which
+%   to sample the data.  in this case, <targetres> must be [] and <finalepisize>
+%   is returned as [].  default: eye(4).
 % <targetres> (optional) is
 %   (1) [X Y Z], a 3-element vector with the number of voxels desired for the final 
 %       output.  if supplied, then volumes will be interpolated only at the points 
@@ -328,6 +335,8 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2014/11/26 - allow <episliceorder> to be the {X} case
+% 2014/04/30 - allow <extratrans> to be the {X} case
 % 2013/06/02 - back out previous change. (was buggy.).  must use NIFTI_20110215 apparently!
 % 2013/05/28 - tweak to ensure compatibility with newer versions of the NIFTI toolbox
 % 2011/08/07 - fix bug related to no inplanes being supplied (would have crashed)
@@ -518,6 +527,15 @@ if isempty(epiinplanematrixsize)
   epiinplanematrixsize = sizefull(epis{1},2);
 end
 
+% deal with special extratrans case
+if iscell(extratrans)
+  dimdata = 1;
+  dimtime = 2;
+else
+  dimdata = 3;
+  dimtime = 4;
+end
+
 % calc
 wantfigs = ~isempty(figuredir);
 wantmotioncorrect = ~isequalwithequalnans(motionreference,NaN);
@@ -570,8 +588,13 @@ if wantundistort
 end
 
 % deal with targetres
-if isempty(targetres)
-  targetres = epidim;
+if iscell(extratrans)
+  targetres0 = [];    % targetres0 is used in specific function calls. this is a bit ugly.
+else
+  if isempty(targetres)
+    targetres = epidim;
+  end
+  targetres0 = targetres(1:3);
 end
 
 % make figure dir
@@ -606,8 +629,13 @@ epis = cellfun(@(x,y) x(:,:,:,y(1)+1:end-y(2)),epis,numepiignore,'UniformOutput'
 % slice time correct [NOTE: we may have to do in a for loop to minimize memory usage]
 if ~isempty(episliceorder)
   fprintf('correcting for differences in slice acquisition times...');
-  epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
-                 epis,repmat({calcposition(episliceorder,1:max(episliceorder))},[1 length(epis)]),'UniformOutput',0);
+  if iscell(episliceorder)
+    epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
+                   epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
+  else
+    epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
+                   epis,repmat({calcposition(episliceorder,1:max(episliceorder))},[1 length(epis)]),'UniformOutput',0);
+  end
   fprintf('done.\n');
 end
 
@@ -965,21 +993,21 @@ if wantmotioncorrect
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,w) undistortvolumes(x, ...
                      episize,bsxfun(@plus,sign(z)*y0, ...
-                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,w(2:end,:),extratrans,targetres(1:3)), ...
+                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,w(2:end,:),extratrans,targetres0), ...
                      epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
     else
       [epis,voloffset,validvolrun] = cellfun(@(x,y,z,w) undistortvolumes(x,episize, ...
-                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,w(2:end,:),extratrans,targetres(1:3)), ...
+                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,w(2:end,:),extratrans,targetres0), ...
                      epis,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
     end
   else
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,z,w) undistortvolumes(x, ...
-                     episize,y0,z,w(2:end,:),extratrans,targetres(1:3)), ...
+                     episize,y0,z,w(2:end,:),extratrans,targetres0), ...
                      epis,sliceshifts,num2cell(abs(epiphasedir)),mparams,'UniformOutput',0);
     else
       [epis,voloffset,validvolrun] = cellfun(@(x,w) undistortvolumes(x, ...
-                     episize,[],[],w(2:end,:),extratrans,targetres(1:3)), ...
+                     episize,[],[],w(2:end,:),extratrans,targetres0), ...
                      epis,mparams,'UniformOutput',0);
     end
   end
@@ -992,21 +1020,21 @@ else
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z) undistortvolumes(x, ...
                      episize,bsxfun(@plus,sign(z)*y0, ...
-                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,[],extratrans,targetres(1:3)), ...
+                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,[],extratrans,targetres0), ...
                      epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
     else
       [epis,voloffset,validvolrun] = cellfun(@(x,y,z) undistortvolumes(x,episize, ...
-                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[],extratrans,targetres(1:3)), ...
+                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[],extratrans,targetres0), ...
                      epis,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
     end
   else
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,z) undistortvolumes(x, ...
-                     episize,y0,z,[],extratrans,targetres(1:3)), ...
+                     episize,y0,z,[],extratrans,targetres0), ...
                      epis,sliceshifts,num2cell(abs(epiphasedir)),'UniformOutput',0);
     else
       [epis,voloffset,validvolrun] = cellfun(@(x) undistortvolumes(x, ...
-                     episize,[],[],[],extratrans,targetres(1:3)), ...
+                     episize,[],[],[],extratrans,targetres0), ...
                      epis,'UniformOutput',0);
     end
   end
@@ -1054,7 +1082,7 @@ end
   reportmemoryandtime;
 
 % write out EPI final inspections
-if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift)
+if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~iscell(extratrans)
   fprintf('writing out inspections of final EPI results...');
 
   % inspect first and last of each run
@@ -1071,14 +1099,18 @@ end
 
 % final EPI calculations  [note: mean of int16 produces double! this is good, except for the NaN issue]
 fprintf('performing final EPI calculations...');
-meanvolrun = cellfun(@(x) int16(mean(x,4)),epis,'UniformOutput',0);          % mean of each run
-meanvol = int16(mean(catcell(4,epis),4));                                    % mean over all runs
+meanvolrun = cellfun(@(x) int16(mean(x,dimtime)),epis,'UniformOutput',0);          % mean of each run
+meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
 validvolrun = validvolrun;                                                   % logical of which voxels have no nans (in each run)
-validvol = all(catcell(4,validvolrun),4);                                    % logical of which voxels have no nans (over all runs)
-if iscell(targetres)
-  finalepisize = targetres{2};
+validvol = all(catcell(dimtime,validvolrun),dimtime);                              % logical of which voxels have no nans (over all runs)
+if iscell(extratrans)
+  finalepisize = [];
 else
-  finalepisize = epifov ./ targetres;                                        % size in mm of a voxel in the final EPI version
+  if iscell(targetres)
+    finalepisize = targetres{2};
+  else
+    finalepisize = epifov ./ targetres;                                        % size in mm of a voxel in the final EPI version
+  end
 end
   % some final adjustments to ensure that the mean of values that should be NaN is 0
 meanvolrun = cellfun(@(x,y) copymatrix(x,~y,0),meanvolrun,validvolrun,'UniformOutput',0);
@@ -1092,7 +1124,7 @@ fprintf('zeroing out data for bad voxels...');
 switch maskoutnans
 case 0
 case 1
-  epis = cellfun(@(x) copymatrix(x,repmat(~validvol,[1 1 1 size(x,4)]),0),epis,'UniformOutput',0);
+  epis = cellfun(@(x) copymatrix(x,repmat(~validvol,[ones(1,dimdata) size(x,dimtime)]),0),epis,'UniformOutput',0);
 case 2
   epis = cellfun(@(x,y) copymatrix(x,~y,0),epis,validvolrun,'UniformOutput',0);
 end
@@ -1106,14 +1138,14 @@ clear fieldmaps fieldmapbrains fieldmapunwraps;
 clear sliceshifts finalfieldmaps;
   
 % do fMRI quality
-if wantfigs && ~iscell(targetres) && ~isequalwithequalnans(fmriqualityparams,NaN)
+if wantfigs && ~iscell(targetres) && ~iscell(extratrans) && ~isequalwithequalnans(fmriqualityparams,NaN)
   fprintf('calling fmriquality.m on the epis...');
   if ~isempty(inplanes)
     inplaneextra = {sizefull(inplanes{1},2) inplanesizes{1}(1:2)};
   else
     inplaneextra = [];
   end
-  fmriquality(epis,episize,[figuredir '/fmriquality'],fmriqualityparams{:},inplaneextra);  % note that NaNs are present and may be in weird places...
+  fmriquality(epis,episize,fullfile(figuredir,'fmriquality'),fmriqualityparams{:},inplaneextra);  % note that NaNs are present and may be in weird places...
   fprintf('done with fmriquality.m.\n');
 end
 
@@ -1123,7 +1155,7 @@ end
 if ~isempty(figuredir)
   fprintf('saving record.mat...');
   clear inplanes;
-  saveexcept([figuredir '/record.mat'],'epis');  % ignore this big variable, but we need it upon function completion
+  saveexcept(fullfile(figuredir,'record.mat'),'epis');  % ignore this big variable, but we need it upon function completion
   fprintf('done.\n');
 end
 

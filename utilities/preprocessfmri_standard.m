@@ -1,4 +1,6 @@
 % history:
+% 2014/04/30 - add binary saving for the extratrans {X} case
+% 2014/04/17 - add fieldmapslicejump for DICOM case
 % 2011/08/07 - fix bugs related to no inplanes and/or no fieldmaps (would have crashed)
 % 2011/07/30 - load first EPI run quickly for mcmask definition
 % 2011/07/28 - mcmask report is an actual matlab command now
@@ -110,10 +112,25 @@ if isequalwithequalnans(fieldmapfiles,NaN)
 
 %%% this is the DICOM case (first DICOM is the fieldmap; second DICOM is the magnitude brain)
 elseif ~isempty(fieldmapfiles) && iscell(fieldmapfiles{1})
+
+  % defaults for backwards-compatibility:
+  if ~exist('fieldmapslicejump','var')
+    fieldmapslicejump = 1;
+  end
+  if ~exist('fieldmapslicerange','var')
+    fieldmapslicerange = [];
+  end
+
   [fieldmaps,fieldmapsizes] = dicomloaddir(cellfun(@(x) x{1},fieldmapfiles,'UniformOutput',0));  % load fieldmaps
   fieldmaps = cellfun(@(x) normalizerange(x,-pi,pi),fieldmaps,'UniformOutput',0);  % normalize min to -pi and max to pi
   [fieldmapbrains] = dicomloaddir(cellfun(@(x) x{2},fieldmapfiles,'UniformOutput',0));  % load magnitude brains
-  fieldmapbrains = cellfun(@(x,y) x(:,:,1:size(y,3)),fieldmapbrains,fieldmaps,'UniformOutput',0);  % use first set
+  fieldmapbrains = cellfun(@(x,y) x(:,:,linspacefixeddiff(1,fieldmapslicejump,size(y,3))), ...
+                           fieldmapbrains,fieldmaps,'UniformOutput',0);  % use first set
+
+  if ~isempty(fieldmapslicerange)
+    fieldmaps = cellfun(@(x) x(:,:,fieldmapslicerange),fieldmaps,'UniformOutput',0);
+    fieldmapbrains = cellfun(@(x) x(:,:,fieldmapslicerange),fieldmapbrains,'UniformOutput',0);
+  end
 
 %%% this is the raw spiral *.7 case
 else
@@ -233,20 +250,32 @@ reportmemoryandtime;
 fprintf('saving data...');
 mkdirquiet(stripfile(savefile));
 for p=1:length(epis)
-  if iscell(targetres) && length(targetres) >= 4 && targetres{4}==1
-    fprintf('for EPI run %d, we have %d time points and %d valid voxels.\n',p,size(epis{p},4),size(epis{p},1));
-    savebinary(sprintf(savefile,p),'int16',squish(int16(epis{p}),3)');  % special flattened format: time x voxels
+  if iscell(extratrans)
+    savebinary(sprintf(savefile,p),'int16',epis{p});
   else
-    save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitr{p}),sprintf(savefile,p));
+    if iscell(targetres) && length(targetres) >= 4 && targetres{4}==1
+      fprintf('for EPI run %d, we have %d time points and %d valid voxels.\n',p,size(epis{p},4),size(epis{p},1));
+      savebinary(sprintf(savefile,p),'int16',squish(int16(epis{p}),3)');  % special flattened format: time x voxels
+    else
+      save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitr{p}),sprintf(savefile,p));
+    end
   end
 end
 if ~isempty(savefileB)
   mkdirquiet(stripfile(savefileB));
-  save_nii(make_nii(int16(validvol),finalepisize),savefileB);
+  if iscell(extratrans)
+    savebinary(savefileB,'int16',validvol);
+  else
+    save_nii(make_nii(int16(validvol),finalepisize),savefileB);
+  end
 end
 if ~isempty(savefileC)
   mkdirquiet(stripfile(savefileC));
-  save_nii(make_nii(int16(meanvol),finalepisize),savefileC);
+  if iscell(extratrans)
+    savebinary(savefileC,'int16',meanvol);
+  else
+    save_nii(make_nii(int16(meanvol),finalepisize),savefileC);
+  end
 end
 fprintf('done (saving data).\n');
 

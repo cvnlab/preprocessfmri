@@ -335,6 +335,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2015/02/28 - fix bug relating to zero-filling (would have crashed)
 % 2014/11/26 - allow <episliceorder> to be the {X} case
 % 2014/04/30 - allow <extratrans> to be the {X} case
 % 2013/06/02 - back out previous change. (was buggy.).  must use NIFTI_20110215 apparently!
@@ -1126,7 +1127,7 @@ case 0
 case 1
   epis = cellfun(@(x) copymatrix(x,repmat(~validvol,[ones(1,dimdata) size(x,dimtime)]),0),epis,'UniformOutput',0);
 case 2
-  epis = cellfun(@(x,y) copymatrix(x,~y,0),epis,validvolrun,'UniformOutput',0);
+  epis = cellfun(@(x,y) copymatrix(x,repmat(~y,[ones(1,dimdata) size(x,dimtime)]),0),epis,validvolrun,'UniformOutput',0);
 end
 fprintf('done.\n');
 

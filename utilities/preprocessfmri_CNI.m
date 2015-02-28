@@ -1,4 +1,5 @@
 % history:
+% 2015/02/28 - circumvent special fields if fieldmapB0files is empty anyway
 % 2013/04/14 - determine epiphasedir on a run-by-run basis (so as to allow epiphasedir to
 %              be different on different runs)
 % 2013/03/15 - add 60 seconds pause; fix bug; save mean.nii and valid.nii files now
@@ -90,41 +91,49 @@ for p=1:length(epifilenames)
   epis{p} = single(ni.img);
   episizes{p} = ni.hdr.dime.pixdim(2:4);
   epitr{p} = ni.hdr.dime.pixdim(5);
+  
+  if ~isempty(fieldmapB0files)
 
-  % if this is the first EPI file, then attempt to learn some information based on
-  % the information in the header.
-  if p==1
+    % if this is the first EPI file, then attempt to learn some information based on
+    % the information in the header.
+    if p==1
 
-    % CNI puts some helpful information in the "descrip" field.  here,
-    % we simply evaluate it (since it is valid MATLAB code).  the variables
-    % defined are as follows:
-    %   ec is the echo spacing (read-out time per PE line) in milliseconds
-    %   rp is the ASSET/ARC acceleration factor in the phase-encode dimension
-    %   acq is the acquisition matrix size (freq x phase)
-    eval(ni.hdr.hist.descrip);  % this should define [ec, rp, acq]
+      % CNI puts some helpful information in the "descrip" field.  here,
+      % we simply evaluate it (since it is valid MATLAB code).  the variables
+      % defined are as follows:
+      %   ec is the echo spacing (read-out time per PE line) in milliseconds
+      %   rp is the ASSET/ARC acceleration factor in the phase-encode dimension
+      %   acq is the acquisition matrix size (freq x phase)
+      eval(ni.hdr.hist.descrip);  % this should define [ec, rp, acq]
 
-    % this should be [A B] where A and B are the in-plane frequency-encode
-    % and phase-encode matrix sizes, respectively.  can be [] in which case 
-    % we default to the size of the first two dimensions of the EPI data.
-    epiinplanematrixsize = acq;
-    fprintf('*** epiinplanematrixsize determined to be %s.\n',mat2str(epiinplanematrixsize));
+      % this should be [A B] where A and B are the in-plane frequency-encode
+      % and phase-encode matrix sizes, respectively.  can be [] in which case 
+      % we default to the size of the first two dimensions of the EPI data.
+      epiinplanematrixsize = acq;
+      fprintf('*** epiinplanematrixsize determined to be %s.\n',mat2str(epiinplanematrixsize));
     
-    % what is the total readout time in milliseconds for an EPI slice?
-    % (note that 'Private_0043_102c' in the dicominfo of the EPI files gives the time per phase-encode line in microseconds.
-    % I confirmed that this time is correct by checking against the waveforms displayed by plotter.)
-    epireadouttime = ec*acq(2)/rp;  % divide by 2 if you are using 2x acceleration
-    fprintf('*** epireadouttime determined to be %.5f ms * %d lines / %d acceleration.\n',ec,acq(2),rp);
+      % what is the total readout time in milliseconds for an EPI slice?
+      % (note that 'Private_0043_102c' in the dicominfo of the EPI files gives the time per phase-encode line in microseconds.
+      % I confirmed that this time is correct by checking against the waveforms displayed by plotter.)
+      epireadouttime = ec*acq(2)/rp;  % divide by 2 if you are using 2x acceleration
+      fprintf('*** epireadouttime determined to be %.5f ms * %d lines / %d acceleration.\n',ec,acq(2),rp);
     
+    end
+
+    % what is the phase-encode direction for the EPI runs? (see preprocessfmri.m for details.)
+    % up-down in the images is 1 or -1 in our convention; left-right in the images is 2 or -2 
+    % in our convention.  you should always check the sanity of the results!
+    % NOTE: this attempts to learn this information from the NIFTI.
+    %       if you ever flip the phase-encode direction, you will need to multiply
+    %       the following by -1.
+    epiphasedir(p) = bitand(uint8(3),bitshift(uint8(ni.hdr.hk.dim_info),-2));
+    fprintf('*** epiphasedir for run %d determined to be %d.\n',p,epiphasedir(p));
+
+  else
+    epiinplanematrixsize = [];
+    epireadouttime = [];
+    epiphasedir = [];
   end
-
-  % what is the phase-encode direction for the EPI runs? (see preprocessfmri.m for details.)
-  % up-down in the images is 1 or -1 in our convention; left-right in the images is 2 or -2 
-  % in our convention.  you should always check the sanity of the results!
-  % NOTE: this attempts to learn this information from the NIFTI.
-  %       if you ever flip the phase-encode direction, you will need to multiply
-  %       the following by -1.
-  epiphasedir(p) = bitand(uint8(3),bitshift(uint8(ni.hdr.hk.dim_info),-2));
-  fprintf('*** epiphasedir for run %d determined to be %d.\n',p,epiphasedir(p));
 
   clear ni;
 end

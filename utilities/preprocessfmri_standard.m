@@ -1,4 +1,5 @@
 % history:
+% 2015/11/15 - implement special cell2 case of episliceorder
 % 2014/04/30 - add binary saving for the extratrans {X} case
 % 2014/04/17 - add fieldmapslicejump for DICOM case
 % 2011/08/07 - fix bugs related to no inplanes and/or no fieldmaps (would have crashed)
@@ -257,7 +258,12 @@ for p=1:length(epis)
       fprintf('for EPI run %d, we have %d time points and %d valid voxels.\n',p,size(epis{p},4),size(epis{p},1));
       savebinary(sprintf(savefile,p),'int16',squish(int16(epis{p}),3)');  % special flattened format: time x voxels
     else
-      save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitr{p}),sprintf(savefile,p));
+      if iscell(episliceorder) && length(episliceorder)==2  % in this case we can actually change the TR
+        epitrtouse = episliceorder{2};
+      else
+        epitrtouse = epitr{p};
+      end
+      save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitrtouse),sprintf(savefile,p));
     end
   end
 end

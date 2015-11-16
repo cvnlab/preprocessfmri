@@ -75,8 +75,11 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   X is a vector of positive integers that specify the times at which each 
 %   slice is collected.  for example, if X is [1 2 3 1 2 3] this means that 
 %   the 1st and 4th slices were acquired first, then the 2nd and 5th slices, 
-%   and then the 3rd and 6th slices.  you can also set <episliceorder> to [] 
-%   which means do not perform slice time correction.
+%   and then the 3rd and 6th slices.  can also be {X NEWTR} which is the same
+%   as the {X} case except that we prepare the data at a new TR (NEWTR) and
+%   in doing so we use cubic interpolation (instead of the usual sinc interpolation)
+%   you can also set <episliceorder> to [] which means do not perform 
+%   slice time correction.
 % <epiphasedir> is an integer indicating the phase-encode direction or
 %   a vector of such integers.  should mirror <epis>.  if a single integer,
 %   we automatically repeat that integer for multiple <epis>.
@@ -206,7 +209,8 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %  3. for each EPI run, we perform slice time correction according to <episliceorder>,
 %     interpolating each slice to the time of the first slice.  to obtain new values,
 %     we use sinc interpolation, replicating the first and last time points to handle
-%     edge issues.
+%     edge issues.  (in the case where <episliceorder> is a cell vector of length 2,
+%     we use cubic interpolation and change the TR of the data.)
 %  4. for each EPI run, we compute the temporal SNR.  this is performed by regressing
 %     out a line from each voxel's time-series, computing the absolute value of the
 %     difference between successive time points, computing the median of these absolute
@@ -335,6 +339,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2015/11/15 - implement the cell2 case of <episliceorder> and a few bug fixes
 % 2015/02/28 - fix bug relating to zero-filling (would have crashed)
 % 2014/11/26 - allow <episliceorder> to be the {X} case
 % 2014/04/30 - allow <extratrans> to be the {X} case
@@ -631,8 +636,22 @@ epis = cellfun(@(x,y) x(:,:,:,y(1)+1:end-y(2)),epis,numepiignore,'UniformOutput'
 if ~isempty(episliceorder)
   fprintf('correcting for differences in slice acquisition times...');
   if iscell(episliceorder)
-    epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
-                   epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
+    if length(episliceorder)==1
+      epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
+                     epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
+    else
+      % this is the special case where we are changing the TR
+      for p=1:length(epis)
+        epistemp = cast([],class(epis{p}));
+        for q=1:size(epis{p},3)  % process each slice separately
+          epistemp(:,:,q,:) = tseriesinterp(epis{p}(:,:,q,:),epitr(p),episliceorder{2},4,[], ...
+                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)));
+        end
+        epis{p} = epistemp;
+      end
+      clear epistemp;
+      epitr(:) = episliceorder{2};  % we have a new TR, so change this!
+    end
   else
     epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
                    epis,repmat({calcposition(episliceorder,1:max(episliceorder))},[1 length(epis)]),'UniformOutput',0);
@@ -726,14 +745,19 @@ if wantundistort
       % get temporary filenames
       tmp1 = tempname; tmp2 = tempname;
       
+            %       % make a complex fieldmap and save to tmp1
+            %       save_untouch_nii(make_ana(fieldmapbrains{p} .* exp(j*fieldmaps{p}),fieldmapsizes{p},[],32),tmp1);
       % make a complex fieldmap and save to tmp1
-      save_untouch_nii(make_ana(fieldmapbrains{p} .* exp(j*fieldmaps{p}),fieldmapsizes{p},[],32),tmp1);
-      
+      save_nii(make_nii(fieldmapbrains{p} .* exp(j*fieldmaps{p}),fieldmapsizes{p},[],32),tmp1);
+
       % use prelude to unwrap, saving to tmp2
       unix_wrapper(sprintf('prelude -c %s -o %s %s; gunzip %s.nii.gz',tmp1,tmp2,fieldmapunwrap{p},tmp2));
       
       % load in the unwrapped fieldmap
       temp = load_nii(sprintf('%s.nii',tmp2));  % OLD: temp = readFileNifti(tmp2);
+      
+      % HACK (WHY IS THIS NECESSARY?)
+      temp.img = flipdim(temp.img,1);
       
       % convert from radians centered on 0 to actual Hz
       fieldmapunwraps{p} = double(temp.img)/pi*fmapsc(p);

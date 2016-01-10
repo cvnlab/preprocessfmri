@@ -252,7 +252,12 @@ fprintf('saving data...');
 mkdirquiet(stripfile(savefile));
 for p=1:length(epis)
   if iscell(extratrans)
-    savebinary(sprintf(savefile,p),'int16',epis{p});
+    if exist('cvn','var') && ~isempty(cvn)
+      cvn.data = permute(reshape(epis{p},cvn.numlh+cvn.numrh,cvn.numlayers,size(epis{p},2)),[3 2 1]);
+      save(sprintf(savefile,p),'-struct','cvn','-v7.3');
+    else
+      savebinary(sprintf(savefile,p),'int16',epis{p});
+    end
   else
     if iscell(targetres) && length(targetres) >= 4 && targetres{4}==1
       fprintf('for EPI run %d, we have %d time points and %d valid voxels.\n',p,size(epis{p},4),size(epis{p},1));
@@ -270,7 +275,12 @@ end
 if ~isempty(savefileB)
   mkdirquiet(stripfile(savefileB));
   if iscell(extratrans)
-    savebinary(savefileB,'int16',validvol);
+    if exist('cvn','var') && ~isempty(cvn)
+      cvn.data = permute(reshape(validvol,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
+      save(savefileB,'-struct','cvn','-v7.3');
+    else
+      savebinary(savefileB,'int16',validvol);
+    end
   else
     save_nii(make_nii(int16(validvol),finalepisize),savefileB);
   end
@@ -278,7 +288,12 @@ end
 if ~isempty(savefileC)
   mkdirquiet(stripfile(savefileC));
   if iscell(extratrans)
-    savebinary(savefileC,'int16',meanvol);
+    if exist('cvn','var') && ~isempty(cvn)
+      cvn.data = permute(reshape(meanvol,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
+      save(savefileC,'-struct','cvn','-v7.3');
+    else
+      savebinary(savefileC,'int16',meanvol);
+    end
   else
     save_nii(make_nii(int16(meanvol),finalepisize),savefileC);
   end

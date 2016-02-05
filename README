@@ -31,6 +31,7 @@ Contents:
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% CHANGE HISTORY
 
 History of major code changes:
+- 2016/02/05 - cubic-interpolation case of preprocessfmri now uses padding.
 - 2013/06/24 - Version 1.0.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% COPYRIGHT

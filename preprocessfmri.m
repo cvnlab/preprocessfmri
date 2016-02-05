@@ -77,9 +77,9 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   the 1st and 4th slices were acquired first, then the 2nd and 5th slices, 
 %   and then the 3rd and 6th slices.  can also be {X NEWTR} which is the same
 %   as the {X} case except that we prepare the data at a new TR (NEWTR) and
-%   in doing so we use cubic interpolation (instead of the usual sinc interpolation)
-%   you can also set <episliceorder> to [] which means do not perform 
-%   slice time correction.
+%   in doing so we use cubic interpolation (and first and last data point padding)
+%   (instead of the usual sinc interpolation). you can also set <episliceorder>
+%   to [] which means do not perform slice time correction.
 % <epiphasedir> is an integer indicating the phase-encode direction or
 %   a vector of such integers.  should mirror <epis>.  if a single integer,
 %   we automatically repeat that integer for multiple <epis>.
@@ -339,6 +339,8 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/02/05 - the cell2 case of <episliceorder> now uses REPLICATION for the first and
+%              last data points.  this changes previous behavior!!
 % 2015/11/15 - implement the cell2 case of <episliceorder> and a few bug fixes
 % 2015/02/28 - fix bug relating to zero-filling (would have crashed)
 % 2014/11/26 - allow <episliceorder> to be the {X} case
@@ -640,12 +642,12 @@ if ~isempty(episliceorder)
       epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
                      epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
     else
-      % this is the special case where we are changing the TR
+      % this is the special case where we are changing the TR [cubic interpolation with padding]
       for p=1:length(epis)
         epistemp = cast([],class(epis{p}));
         for q=1:size(epis{p},3)  % process each slice separately
           epistemp(:,:,q,:) = tseriesinterp(epis{p}(:,:,q,:),epitr(p),episliceorder{2},4,[], ...
-                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)));
+                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)),1);
         end
         epis{p} = epistemp;
       end

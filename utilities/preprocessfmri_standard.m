@@ -1,4 +1,5 @@
 % history:
+% 2016/02/05 - add <epismoothfwhm>
 % 2015/11/15 - implement special cell2 case of episliceorder
 % 2014/04/30 - add binary saving for the extratrans {X} case
 % 2014/04/17 - add fieldmapslicejump for DICOM case
@@ -74,6 +75,9 @@ if ~exist('epiphasemode','var')
 end
 if ~exist('dformat','var')
   dformat = [];
+end
+if ~exist('epismoothfwhm','var')
+  epismoothfwhm = [];
 end
 
 % interactive prompt for mcmask
@@ -242,7 +246,7 @@ fprintf('calling preprocessfmri...');
   epis,episizes{1},epiinplanematrixsizes{1},cell2mat(epitr),episliceorder, ...
   epiphasedir,epireadouttime,epifieldmapasst, ...
   numepiignore,motionreference,motioncutoff,extratrans,targetres, ...
-  sliceshiftband,fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat);
+  sliceshiftband,fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm);
 fprintf('done (calling preprocessfmri).\n');
 
 reportmemoryandtime;

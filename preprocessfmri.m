@@ -2,13 +2,13 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapunwrap,fieldmapsmoothing, ...
   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
-  fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat)
+  fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm)
 
 % function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
 %   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapsmoothing, ...
 %   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
 %   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
-%   fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat)
+%   fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm)
 %
 % <figuredir> is the directory to write figures and results to.
 %   [] means do not write figures and results.
@@ -184,6 +184,9 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 % <dformat> (optional) is 'single' | 'double'.  if you supply 'single', we will
 %   attempt to use single format at various points in processing in order to
 %   reduce memory usage.  default: 'double'.
+% <epismoothfwhm> is a 3-element vector with the desired FWHM of a Gaussian filter.
+%   if supplied, we smooth the EPI volumes right after slice time correction.
+%   Default is [] which means do nothing.
 %
 % here's the short version:
 %   we process the EPI data by (1) dropping the first few volumes (e.g. to avoid
@@ -339,6 +342,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/02/05 - add <epismoothfwhm> input
 % 2016/02/05 - the cell2 case of <episliceorder> now uses REPLICATION for the first and
 %              last data points.  this changes previous behavior!!
 % 2015/11/15 - implement the cell2 case of <episliceorder> and a few bug fixes
@@ -453,6 +457,9 @@ if ~exist('epiignoremcvol','var') || isempty(epiignoremcvol)
 end
 if ~exist('dformat','var') || isempty(dformat)
   dformat = 'double';
+end
+if ~exist('epismoothfwhm','var') || isempty(epismoothfwhm)
+  epismoothfwhm = [];
 end
 
 % make cell if necessary
@@ -658,6 +665,15 @@ if ~isempty(episliceorder)
     epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
                    epis,repmat({calcposition(episliceorder,1:max(episliceorder))},[1 length(epis)]),'UniformOutput',0);
   end
+  fprintf('done.\n');
+end
+
+  reportmemoryandtime;
+
+% smooth volumes if desired
+if ~isempty(epismoothfwhm)
+  fprintf('smoothing volumes...');
+  epis = smoothvolumes(epis,episize,epismoothfwhm);
   fprintf('done.\n');
 end
 

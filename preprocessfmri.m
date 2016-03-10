@@ -78,8 +78,12 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   and then the 3rd and 6th slices.  can also be {X NEWTR} which is the same
 %   as the {X} case except that we prepare the data at a new TR (NEWTR) and
 %   in doing so we use cubic interpolation (and first and last data point padding)
-%   (instead of the usual sinc interpolation). you can also set <episliceorder>
-%   to [] which means do not perform slice time correction.
+%   (instead of the usual sinc interpolation).  NEWTR can be a vector in which
+%   case different runs get different TRs.  can also be {X NEWTR NEWOFFSET} which
+%   allows temporal offsets (positive means start in the future) in seconds, where
+%   NEWOFFSET can be a scalar or a vector (specifying different values for different
+%   runs).  you can also set <episliceorder> to [] which means do not perform slice 
+%   time correction.
 % <epiphasedir> is an integer indicating the phase-encode direction or
 %   a vector of such integers.  should mirror <epis>.  if a single integer,
 %   we automatically repeat that integer for multiple <epis>.
@@ -342,6 +346,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/02/25 - expand flexibility of <episliceorder>
 % 2016/02/05 - add <epismoothfwhm> input
 % 2016/02/05 - the cell2 case of <episliceorder> now uses REPLICATION for the first and
 %              last data points.  this changes previous behavior!!
@@ -583,6 +588,19 @@ if ischar(episliceorder)
   end
 end
 
+% deal with defaults for episliceorder
+if ~isempty(episliceorder) && iscell(episliceorder) && length(episliceorder)>=2
+  if length(episliceorder{2})==1
+    episliceorder{2} = repmat(episliceorder{2},[1 length(epis)]);
+  end
+  if length(episliceorder)<3
+    episliceorder{3} = 0;
+  end
+  if length(episliceorder{3})==1
+    episliceorder{3} = repmat(episliceorder{3},[1 length(epis)]);
+  end
+end
+
 % deal with massaging epifieldmapasst [after this, epifieldmapasst will either be NaN or a fully specified cell vector]
 if wantundistort
   if isempty(epifieldmapasst)
@@ -653,13 +671,13 @@ if ~isempty(episliceorder)
       for p=1:length(epis)
         epistemp = cast([],class(epis{p}));
         for q=1:size(epis{p},3)  % process each slice separately
-          epistemp(:,:,q,:) = tseriesinterp(epis{p}(:,:,q,:),epitr(p),episliceorder{2},4,[], ...
-                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)),1);
+          epistemp(:,:,q,:) = tseriesinterp(epis{p}(:,:,q,:),epitr(p),episliceorder{2}(p),4,[], ...
+                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)) - episliceorder{3}(p),1);
         end
         epis{p} = epistemp;
       end
       clear epistemp;
-      epitr(:) = episliceorder{2};  % we have a new TR, so change this!
+      epitr = episliceorder{2};  % we have a new TR, so change this!
     end
   else
     epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
@@ -1026,7 +1044,7 @@ if wantmotioncorrect
   end
 
   % estimate motion parameters from the slice-shifted and undistorted
-  [epistemp,mparams] = motioncorrectvolumes(epistemp,cellfun(@(x,y) [x y],repmat({episize},[1 length(epis)]),num2cell(epitr),'UniformOutput',0), ...
+  [epistemp,mparams,refvol] = motioncorrectvolumes(epistemp,cellfun(@(x,y) [x y],repmat({episize},[1 length(epis)]),num2cell(epitr),'UniformOutput',0), ...
     figuredir,motionreference,motioncutoff,[],1,[],[],mcmaskvol,epiignoremcvol,dformat);
   clear epistemp;
           %[epistemp,homogenizemask] = homogenizevolumes(epistemp,[99 1/4 2 2]);  % [],1

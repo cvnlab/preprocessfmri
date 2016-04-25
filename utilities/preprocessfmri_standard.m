@@ -241,7 +241,7 @@ reportmemoryandtime;
     epiignoremcvol = [];
   end
 fprintf('calling preprocessfmri...');
-[epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
+[epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
   {fieldmaps fieldmaptimes},fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapunwrap,fieldmapsmoothing, ...
   epis,episizes{1},epiinplanematrixsizes{1},cell2mat(epitr),episliceorder, ...
   epiphasedir,epireadouttime,epifieldmapasst, ...
@@ -253,6 +253,7 @@ reportmemoryandtime;
 
 % save it
 fprintf('saving data...');
+  %%% first deal with EPI
 mkdirquiet(stripfile(savefile));
 for p=1:length(epis)
   if iscell(extratrans)
@@ -276,31 +277,25 @@ for p=1:length(epis)
     end
   end
 end
-if ~isempty(savefileB)
-  mkdirquiet(stripfile(savefileB));
-  if iscell(extratrans)
-    if exist('cvn','var') && ~isempty(cvn)
-      cvn.data = permute(reshape(validvol,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
-      save(savefileB,'-struct','cvn','-v7.3');
+  %%% then deal with additional volumes
+additional =      {'savefileB' 'savefileC' 'savefileD'      'savefileE'};
+additionalvars =  {validvol    meanvol     additionalvol{1} additionalvol{2}};
+additionalunits = {'int16'     'int16'     'int16'          'single'};
+for p=1:length(additional)
+  if exist(additional{p},'var') && ~isempty(eval(additional{p}))
+    savefile0 = eval(additional{p});
+    vol0 = additionalvars{p};
+    mkdirquiet(stripfile(savefile0));
+    if iscell(extratrans)
+      if exist('cvn','var') && ~isempty(cvn)
+        cvn.data = permute(reshape(vol0,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
+        save(savefile0),'-struct','cvn','-v7.3');
+      else
+        savebinary(savefile0,additionalunits{p},vol0);
+      end
     else
-      savebinary(savefileB,'int16',validvol);
+      save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
     end
-  else
-    save_nii(make_nii(int16(validvol),finalepisize),savefileB);
-  end
-end
-if ~isempty(savefileC)
-  mkdirquiet(stripfile(savefileC));
-  if iscell(extratrans)
-    if exist('cvn','var') && ~isempty(cvn)
-      cvn.data = permute(reshape(meanvol,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
-      save(savefileC,'-struct','cvn','-v7.3');
-    else
-      savebinary(savefileC,'int16',meanvol);
-    end
-  else
-    save_nii(make_nii(int16(meanvol),finalepisize),savefileC);
-  end
 end
 fprintf('done (saving data).\n');
 

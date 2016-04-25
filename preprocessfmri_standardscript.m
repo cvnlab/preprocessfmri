@@ -199,10 +199,14 @@ maskoutnans = [];
 %            (in the special EPI flattening case, we save the data to raw binary files (time x voxels) instead of .nii files.)
 % savefileB: what .nii file should we save the valid voxels (binary mask) to?  ([] means do not save.)
 % savefileC: what .nii file should we save the mean volume to?  ([] means do not save.)
+% savefileD: what .nii file should we save the mad volume to?  ([] means do not save.)
+% savefileE: what .nii file should we save the tsnr volume to?  ([] means do not save.)
 % (we automatically make parent directories if necessary.)
 savefile = [datadir '/run%02d.nii'];
 savefileB = [datadir '/valid.nii'];
 savefileC = [datadir '/mean.nii'];
+savefileD = [datadir '/mad.nii'];
+savefileE = [datadir '/tsnr.nii'];
 
 % what .txt file should we keep a diary in?
 diaryfile = [datadir '/diary.txt'];

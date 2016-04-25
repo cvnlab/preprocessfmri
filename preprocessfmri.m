@@ -1,10 +1,10 @@
-function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
+function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapunwrap,fieldmapsmoothing, ...
   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
   fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm)
 
-% function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
+% function [epis,finalepisize,validvol,meanvol,additionalvol = preprocessfmri(figuredir,inplanes,inplanesizes, ...
 %   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapsmoothing, ...
 %   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
 %   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
@@ -282,6 +282,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %      <meanvol> as the mean volume aggregating over all EPI runs (converted to int16)
 %      <validvolrun> as cell vector of logical volumes indicating which voxels had no NaNs for each EPI run
 %      <validvol> as a logical volume indicating which voxels had no NaNs in any EPI run
+%      <additionalvol> as a cell vector with various quantities (see #19 below)
 %     then, as a last step, we zero out voxel data according to <maskoutnans>.
 % 17. just before we finish up, we write out figures that illustrate the spatial quality of the
 %     final corrected version of the EPI data.  (this is skipped when <targetres> is the 
@@ -297,6 +298,10 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %     <finalepisize> as a 3-element vector indicating the voxel size of the <epis> output.
 %     <validvol> as a logical volume indicating which voxels had no NaNs in any EPI run.
 %     <meanvol> as the mean volume aggregating over all EPI runs.
+%     <additionalvol> as a cell vector with {A B} where
+%        A is a volume with the median absolute difference (aggregating over all runs). invalid voxels get 0.
+%        B is a volume with the temporal SNR (aggregating over all runs). invalid voxels get NaN.
+%        please see computetemporalsnr.m for details on these quantities.
 %
 % notes:
 % - we have deliberately offloaded format-specific loading and saving of data
@@ -346,6 +351,7 @@ function [epis,finalepisize,validvol,meanvol] = preprocessfmri(figuredir,inplane
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/04/17 - add <additionalvol> output
 % 2016/02/25 - expand flexibility of <episliceorder>
 % 2016/02/05 - add <epismoothfwhm> input
 % 2016/02/05 - the cell2 case of <episliceorder> now uses REPLICATION for the first and
@@ -1161,9 +1167,14 @@ end
 % final EPI calculations  [note: mean of int16 produces double! this is good, except for the NaN issue]
 fprintf('performing final EPI calculations...');
 meanvolrun = cellfun(@(x) int16(mean(x,dimtime)),epis,'UniformOutput',0);          % mean of each run
-meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
-validvolrun = validvolrun;                                                   % logical of which voxels have no nans (in each run)
+  %OLD:
+  %meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
+validvolrun = validvolrun;                                                         % logical of which voxels have no nans (in each run)
 validvol = all(catcell(dimtime,validvolrun),dimtime);                              % logical of which voxels have no nans (over all runs)
+  % deal with temporal SNR
+[tsnr,mn,mad] = computetemporalsnr(catcell(dimtime,epis),dimtime);
+meanvol = int16(mn);                                                               % mean over all runs
+additionalvol = {mad tsnr};
 if iscell(extratrans)
   finalepisize = [];
 else
@@ -1173,9 +1184,11 @@ else
     finalepisize = epifov ./ targetres;                                        % size in mm of a voxel in the final EPI version
   end
 end
-  % some final adjustments to ensure that the mean of values that should be NaN is 0
+  % some final adjustments for invalid voxels
 meanvolrun = cellfun(@(x,y) copymatrix(x,~y,0),meanvolrun,validvolrun,'UniformOutput',0);
-meanvol(~validvol) = 0;
+meanvol(~validvol) = 0;                  % invalid gets mean 0
+additionalvol{1}(~validvol) = 0;         % invalid gets mad 0
+additionalvol{2}(~validvol) = NaN;       % invalid gets tsnr NaN
 fprintf('done.\n');
 
   reportmemoryandtime;

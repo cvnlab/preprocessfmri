@@ -1,4 +1,5 @@
 % history:
+% 2016/05/02 - add support for <wantpushalt> and the case of <epifilenames> being NaN
 % 2016/02/05 - add <epismoothfwhm>
 % 2015/11/15 - implement special cell2 case of episliceorder
 % 2014/04/30 - add binary saving for the extratrans {X} case
@@ -44,7 +45,7 @@ else
   fprintf('\n');
 end
 
-if isempty(epifilenames)
+if isempty(epifilenames) || isequalwithequalnans(epifilenames,NaN)
   fprintf('no epifilenames were specified (VERIFY THAT THIS IS CORRECT).\n\n');
 else
   fprintf('the following are the epifilenames that we found (VERIFY THAT THIS IS CORRECT):\n');
@@ -95,15 +96,19 @@ reportmemoryandtime;
 
 % load EPI DICOM directories
 fprintf('loading EPI data...');
-[epis,episizes,epiinplanematrixsizes,epitr] = dicomloaddir(epifilenames,[],epinumonly,epidesiredinplanesize,epiphasemode,dformat);
-%         epis = {}; episizes = {};
-%         for p=1:length(epifilenames)
-%           temp = readFileNifti(epifilenames{p});
-%           epis{p} = double(temp.data);
-%           episizes{p} = temp.pixdim(1:3);
-%           clear temp;
-%         end
-%         epiindex = feval(epiindexfun,epis);
+if iscell(epifilenames)
+  [epis,episizes,epiinplanematrixsizes,epitr] = dicomloaddir(epifilenames,[],epinumonly,epidesiredinplanesize,epiphasemode,dformat);
+  %         epis = {}; episizes = {};
+  %         for p=1:length(epifilenames)
+  %           temp = readFileNifti(epifilenames{p});
+  %           epis{p} = double(temp.data);
+  %           episizes{p} = temp.pixdim(1:3);
+  %           clear temp;
+  %         end
+  %         epiindex = feval(epiindexfun,epis);
+else
+  assert(isequalwithequalnans(epifilenames,NaN));  % NOTE: the relevant variables should already be defined by the user!
+end
 fprintf('done (loading EPI data).\n');
 
 reportmemoryandtime;
@@ -240,13 +245,16 @@ reportmemoryandtime;
   if ~exist('epiignoremcvol','var')
     epiignoremcvol = [];
   end
+  if ~exist('wantpushalt','var')
+    wantpushalt = [];
+  end
 fprintf('calling preprocessfmri...');
 [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(figuredir,inplanes,inplanesizes, ...
   {fieldmaps fieldmaptimes},fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapunwrap,fieldmapsmoothing, ...
   epis,episizes{1},epiinplanematrixsizes{1},cell2mat(epitr),episliceorder, ...
   epiphasedir,epireadouttime,epifieldmapasst, ...
   numepiignore,motionreference,motioncutoff,extratrans,targetres, ...
-  sliceshiftband,fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm);
+  sliceshiftband,fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm,wantpushalt);
 fprintf('done (calling preprocessfmri).\n');
 
 reportmemoryandtime;
@@ -285,17 +293,20 @@ for p=1:length(additional)
   if exist(additional{p},'var') && ~isempty(eval(additional{p}))
     savefile0 = eval(additional{p});
     vol0 = additionalvars{p};
-    mkdirquiet(stripfile(savefile0));
-    if iscell(extratrans)
-      if exist('cvn','var') && ~isempty(cvn)
-        cvn.data = permute(reshape(vol0,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
-        save(savefile0),'-struct','cvn','-v7.3');
+    if ~isempty(vol0)
+      mkdirquiet(stripfile(savefile0));
+      if iscell(extratrans)
+        if exist('cvn','var') && ~isempty(cvn)
+          cvn.data = permute(reshape(vol0,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
+          save(savefile0,'-struct','cvn','-v7.3');
+        else
+          savebinary(savefile0,additionalunits{p},vol0);
+        end
       else
-        savebinary(savefile0,additionalunits{p},vol0);
+        save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
       end
-    else
-      save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
     end
+  end
 end
 fprintf('done (saving data).\n');
 

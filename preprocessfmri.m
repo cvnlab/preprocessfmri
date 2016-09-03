@@ -2,13 +2,13 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapunwrap,fieldmapsmoothing, ...
   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
-  fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm)
+  fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm,wantpushalt)
 
 % function [epis,finalepisize,validvol,meanvol,additionalvol = preprocessfmri(figuredir,inplanes,inplanesizes, ...
 %   fieldmaps,fieldmapbrains,fieldmapsizes,fieldmapdeltate,fieldmapsmoothing, ...
 %   epis,episize,epiinplanematrixsize,epitr,episliceorder,epiphasedir,epireadouttime,epifieldmapasst, ...
 %   numepiignore,motionreference,motioncutoff,extratrans,targetres,sliceshiftband, ...
-%   fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm)
+%   fmriqualityparams,fieldmaptimeinterp,mcmask,maskoutnans,epiignoremcvol,dformat,epismoothfwhm,wantpushalt)
 %
 % <figuredir> is the directory to write figures and results to.
 %   [] means do not write figures and results.
@@ -56,6 +56,17 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   these volumes should be double format but should be suitable for 
 %   interpretation as int16.  there must be at least one EPI run.  
 %   the first three dimensions must be consistent across cases.
+%   a special case is that <epis> can be phase angles. to specify this
+%   case, <epis> must be converted from angles to unit-length complex numbers,
+%   multiplied by 10,000, and cast to int16; and you must also supply
+%   <wantpushalt>.  when we are all done processing, the output in this special 
+%   case is returned as angles expressed as int16 in the range [0,4095], with the
+%   intention of being interpreted as [0,2*pi]. some special requirements of the phase
+%   angle case: if <episliceorder> is used, it must be of the case where it is
+%   a cell vector with at least two elements. also, in the phase data case,
+%   we make no guarantees on the validity of anything related to temporalsnr, 
+%   <meanvol> and <additionalvol> (so distrust those quantities!).  in fact,
+%   <meanvol> is returned as [] and <additionalvol> is returned as {[] []}.
 % <episize> is a 3-element vector with the voxel size in mm.
 % <epiinplanematrixsize> is [A B] where A and B are the in-plane frequency-encode
 %   and phase-encode matrix sizes, respectively.  for example, [76 64] indicates
@@ -77,7 +88,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   the 1st and 4th slices were acquired first, then the 2nd and 5th slices, 
 %   and then the 3rd and 6th slices.  can also be {X NEWTR} which is the same
 %   as the {X} case except that we prepare the data at a new TR (NEWTR) and
-%   in doing so we use cubic interpolation (and first and last data point padding)
+%   in doing so we use spline interpolation (and first and last data point padding)
 %   (instead of the usual sinc interpolation).  NEWTR can be a vector in which
 %   case different runs get different TRs.  can also be {X NEWTR NEWOFFSET} which
 %   allows temporal offsets (positive means start in the future) in seconds, where
@@ -191,6 +202,11 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 % <epismoothfwhm> is a 3-element vector with the desired FWHM of a Gaussian filter.
 %   if supplied, we smooth the EPI volumes right after slice time correction.
 %   Default is [] which means do nothing.
+% <wantpushalt> is either [] which means do nothing special or a path to a record.mat
+%   file from a previous call.  in this case, mcmask must not be {}, and the 
+%   fmriquality stuff is skipped.  the effect of <wantpushalt> is to skip some 
+%   processing --- specifically, we load in the previous <sliceshifts>, <mparams>,
+%   and <smoothfieldmaps> and use them as-is.
 %
 % here's the short version:
 %   we process the EPI data by (1) dropping the first few volumes (e.g. to avoid
@@ -217,7 +233,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %     interpolating each slice to the time of the first slice.  to obtain new values,
 %     we use sinc interpolation, replicating the first and last time points to handle
 %     edge issues.  (in the case where <episliceorder> is a cell vector of length 2,
-%     we use cubic interpolation and change the TR of the data.)
+%     we use spline interpolation and change the TR of the data.)
 %  4. for each EPI run, we compute the temporal SNR.  this is performed by regressing
 %     out a line from each voxel's time-series, computing the absolute value of the
 %     difference between successive time points, computing the median of these absolute
@@ -295,12 +311,13 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 % 19. we return as output:
 %     <epis> as the final corrected version of the EPI data.  the format is
 %       same as the <epis> input, except that the numerical precision is now int16.
+%       (in the special phase angle case, the input and output format are different (see above).)
 %     <finalepisize> as a 3-element vector indicating the voxel size of the <epis> output.
 %     <validvol> as a logical volume indicating which voxels had no NaNs in any EPI run.
 %     <meanvol> as the mean volume aggregating over all EPI runs.
 %     <additionalvol> as a cell vector with {A B} where
-%        A is a volume with the median absolute difference (aggregating over all runs). invalid voxels get 0.
-%        B is a volume with the temporal SNR (aggregating over all runs). invalid voxels get NaN.
+%        A is a volume with the median absolute difference (computed for the first run). invalid voxels get 0.
+%        B is a volume with the temporal SNR (computed for the first run). invalid voxels get NaN.
 %        please see computetemporalsnr.m for details on these quantities.
 %
 % notes:
@@ -318,6 +335,15 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   every voxel will either have a complete set of data or will have its data set to all zeros.
 % - we encapsulate the commands in this function with "dbstop if error" so that we can
 %   perform troubleshooting if crashes occur.
+%
+% notes on phase angle case:
+% - the general idea for handling <epis> in the case of phase angles is to represent the
+%   angles as equidistant complex numbers, operate on the real and imaginary parts 
+%   separately, and then re-convert back to equidistant complex numbers.  we have
+%   to make sure all computations operate in a way consistent with this.  this includes
+%   the temporal interpolation step, the smoothing step, and the spatial interpolation
+%   step.  our standard phase angle format is complex unit-length numbers that have been
+%   multiplied by 10000 and then converted to int16 (to save on precious memory!).
 %
 % notes on <targetres>:
 % - in the case that <targetres> is {[A B C] [D E F] 1 H}, this is tricky.
@@ -351,6 +377,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/08/09 - switch to spline temporal interpolation instead of cubic!!
+% 2016/05/02 - add support for <wantpushalt> and the phase-angle case of <epis>; also,
+%              the <additionalvol> stuff is now computed only for first run
 % 2016/04/17 - add <additionalvol> output
 % 2016/02/25 - expand flexibility of <episliceorder>
 % 2016/02/05 - add <epismoothfwhm> input
@@ -471,6 +500,9 @@ if ~exist('dformat','var') || isempty(dformat)
 end
 if ~exist('epismoothfwhm','var') || isempty(epismoothfwhm)
   epismoothfwhm = [];
+end
+if ~exist('wantpushalt','var') || isempty(wantpushalt)
+  wantpushalt = [];
 end
 
 % make cell if necessary
@@ -636,6 +668,17 @@ else
   targetres0 = targetres(1:3);
 end
 
+% calc some special phase angle stuff
+if isreal(epis{1})
+  prefun = @(x) double(x);                            % regular case gets 1% normalization and gray colormap
+  prerng = [];
+  precmap = [];
+else
+  prefun = @(x) double(mod(angle(single(x)),2*pi));   % phase angle case gets fixed normalization and hsv colormap
+  prerng = [0 2*pi*(255/256)];
+  precmap = hsv(256);
+end
+
 % make figure dir
 if wantfigs
   mkdirquiet(figuredir);
@@ -673,16 +716,21 @@ if ~isempty(episliceorder)
       epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
                      epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
     else
-      % this is the special case where we are changing the TR [cubic interpolation with padding]
+      % this is the special case where we are changing the TR [spline interpolation with padding]
       for p=1:length(epis)
         epistemp = cast([],class(epis{p}));
         for q=1:size(epis{p},3)  % process each slice separately
-          epistemp(:,:,q,:) = tseriesinterp(epis{p}(:,:,q,:),epitr(p),episliceorder{2}(p),4,[], ...
-                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)) - episliceorder{3}(p),1);
+          temp0 = tseriesinterp(single(epis{p}(:,:,q,:)),epitr(p),episliceorder{2}(p),4,[], ...
+                                -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)) - episliceorder{3}(p), ...
+                                1,'spline');
+          if ~isreal(temp0)  % in the phase angle case, we have to revert back to true angles
+            temp0 = int16(ang2complex(angle(temp0))*10000);
+          end
+          epistemp(:,:,q,:) = temp0;
         end
         epis{p} = epistemp;
       end
-      clear epistemp;
+      clear epistemp temp0;
       epitr = episliceorder{2};  % we have a new TR, so change this!
     end
   else
@@ -700,6 +748,11 @@ if ~isempty(epismoothfwhm)
   epis = smoothvolumes(epis,episize,epismoothfwhm);
   fprintf('done.\n');
 end
+if ~isreal(epis{1})  % in the phase angle case, we have to revert back to true angles
+  for p=1:length(epis)
+    epis{p} = int16(ang2complex(angle(single(epis{p})))*10000);
+  end
+end
 
   reportmemoryandtime;
 
@@ -708,7 +761,11 @@ end
   % in units of percent signal.  (if the mean intensity is negative, the percent signal doesn't make sense, so
   % we set the final result to NaN.)  [if not enough volumes, some warnings will be reported.]
 fprintf('computing temporal SNR...');
-temporalsnr = cellfun(@computetemporalsnr,epis,'UniformOutput',0);
+if isreal(epis{1})
+  temporalsnr = cellfun(@computetemporalsnr,epis,'UniformOutput',0);
+else
+  temporalsnr = [];
+end
 fprintf('done.\n');
 
   reportmemoryandtime;
@@ -718,15 +775,17 @@ if wantfigs
   fprintf('writing out various EPI inspections...');
 
   % first and last of each run
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,1)),epis,'UniformOutput',0)),sprintf('%s/EPIoriginal/image%%04da',figuredir));
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,end)),epis,'UniformOutput',0)),sprintf('%s/EPIoriginal/image%%04db',figuredir));
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,1)),epis,'UniformOutput',0)),  sprintf('%s/EPIoriginal/image%%04da',figuredir),[],prerng,[],precmap);
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,end)),epis,'UniformOutput',0)),sprintf('%s/EPIoriginal/image%%04db',figuredir),[],prerng,[],precmap);
 
   % movie of first run
-  viewmovie(double(epis{1}(:,:,:,1:min(30,end))),sprintf('%s/MOVIEoriginal/image%%04d',figuredir));
+  viewmovie(prefun(epis{1}(:,:,:,1:min(30,end))),sprintf('%s/MOVIEoriginal/image%%04d',figuredir),[],prerng,[],precmap);
 
   % temporal SNR for each run
-  for p=1:length(temporalsnr)
-    imwrite(uint8(255*makeimagestack(tsnrmx-temporalsnr{p},[0 tsnrmx])),jet(256),sprintf('%s/temporalsnr%02d.png',figuredir,p));
+  if ~isempty(temporalsnr)
+    for p=1:length(temporalsnr)
+      imwrite(uint8(255*makeimagestack(tsnrmx-temporalsnr{p},[0 tsnrmx])),jet(256),sprintf('%s/temporalsnr%02d.png',figuredir,p));
+    end
   end
 
   fprintf('done.\n');
@@ -738,7 +797,7 @@ end
 fmapsc = 1./(fieldmapdeltate/1000)/2;  % vector of values like 250 (meaning +/- 250 Hz)
 
 % write out fieldmap inspections
-if wantfigs && wantundistort
+if wantfigs && wantundistort && isempty(wantpushalt)
   fprintf('writing out various fieldmap inspections...');
 
   % write out fieldmaps, fieldmaps brains, and histogram of fieldmap
@@ -778,7 +837,7 @@ end
 
 % unwrap fieldmaps
 fieldmapunwraps = {};
-if wantundistort
+if wantundistort && isempty(wantpushalt)
   fprintf('unwrapping fieldmaps if requested...');
   parfor p=1:length(fieldmaps)
   
@@ -818,7 +877,7 @@ end
   reportmemoryandtime;
 
 % write out inspections of the unwrapping and additional fieldmap inspections
-if wantfigs && wantundistort
+if wantfigs && wantundistort && isempty(wantpushalt)
   fprintf('writing out inspections of the unwrapping and additional inspections...');
   
   % write inspections of unwraps
@@ -844,7 +903,7 @@ end
 
 % use local linear regression to smooth the fieldmaps
 smoothfieldmaps = cell(1,length(fieldmapunwraps));
-if wantundistort && ~isequalwithequalnans(epifieldmapasst,NaN)
+if wantundistort && ~isequalwithequalnans(epifieldmapasst,NaN) && isempty(wantpushalt)
   fprintf('smooth the fieldmaps...');
   for p=1:length(fieldmapunwraps)
     if isnan(fieldmapsmoothing{p})
@@ -863,7 +922,7 @@ end
   reportmemoryandtime;
 
 % write out smoothed fieldmap inspections
-if wantfigs && wantundistort
+if wantfigs && wantundistort && isempty(wantpushalt)
   fprintf('writing out smoothed fieldmaps...');
 
   % write out fieldmap and fieldmap resampled to match the original fieldmap
@@ -888,6 +947,11 @@ end
 finalfieldmaps = cell(1,length(epis));  % we need this to exist in all epi cases
 if wantundistort
   fprintf('deal with epi fieldmap assignment and time interpolation...');
+
+  % if push-alternative-data case, we have to load in smoothfieldmaps
+  if ~isempty(wantpushalt)
+    load(wantpushalt,'smoothfieldmaps');     % JUST-IN-TIME LOADING
+  end
 
   % calculate the final fieldmaps [we use single to save on memory]
   if ~isequalwithequalnans(epifieldmapasst,NaN)
@@ -918,14 +982,14 @@ end
 if wantfigs && wantundistort
   fprintf('writing out inspections of what the undistortion is like...');
 
-  % undistort the first and last volume [NOTE: temp is int16]
+  % undistort the first and last volume [NOTE: temp is int16, or complex int16]
   temp = cellfun(@(x,y,z) undistortvolumes(x(:,:,:,[1 end]),episize, ...
                  y(:,:,:,[1 end])*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)), ...
                  z,[]),epis,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
 
   % inspect first and last of each run
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,1)),temp,'UniformOutput',0)),sprintf('%s/EPIundistort/image%%04da',figuredir));
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,2)),temp,'UniformOutput',0)),sprintf('%s/EPIundistort/image%%04db',figuredir));
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,1)),temp,'UniformOutput',0)),sprintf('%s/EPIundistort/image%%04da',figuredir),[],prerng,[],precmap);
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,2)),temp,'UniformOutput',0)),sprintf('%s/EPIundistort/image%%04db',figuredir),[],prerng,[],precmap);
 
   fprintf('done.\n');
 end
@@ -935,23 +999,31 @@ end
 % calculate center-of-mass stuff
 if wantsliceshift
 
-  % calculate center-of-mass after rectifying the epis.  each element of the cell vector is 1 x 2 x slices x time.
-  com = cellfun(@(x) centerofmass(posrect(x),[1 2],2),epis,'UniformOutput',0);
+  if isempty(wantpushalt)
 
-  % apply band-pass filter
-  combandpass = cellfun(@(x) reshape(zeromean(tsfilter(squish(x,3), ...
-    constructbutterfilter1D(size(x,4),size(x,4)*sliceshiftband),[1 0 -1]),2),1,2,[],size(x,4)),com,'UniformOutput',0);
+    % calculate center-of-mass after rectifying the epis.  each element of the cell vector is 1 x 2 x slices x time.
+    com = cellfun(@(x) centerofmass(posrect(x),[1 2],2),epis,'UniformOutput',0);
+
+    % apply band-pass filter
+    combandpass = cellfun(@(x) reshape(zeromean(tsfilter(squish(x,3), ...
+      constructbutterfilter1D(size(x,4),size(x,4)*sliceshiftband),[1 0 -1]),2),1,2,[],size(x,4)),com,'UniformOutput',0);
   
-  % prepare the pixelshifts argument to undistortvolumes.m.  each element of the cell vector is epidim(1) x epidim(2) x slices x time.
-  % we use single to save on memory.
-  sliceshifts = cellfun(@(x,y) single(repmat(x(1,y,:,:),epidim(1:2))),combandpass,num2cell(abs(epiphasedir)),'UniformOutput',0);
+    % prepare the pixelshifts argument to undistortvolumes.m.  each element of the cell vector is epidim(1) x epidim(2) x slices x time.
+    % we use single to save on memory.
+    sliceshifts = cellfun(@(x,y) single(repmat(x(1,y,:,:),epidim(1:2))),combandpass,num2cell(abs(epiphasedir)),'UniformOutput',0);
   
+  else
+  
+    load(wantpushalt,'sliceshifts');     % JUST-IN-TIME LOADING
+    
+  end
+    
 end
 
   reportmemoryandtime;
 
 % write out inspections of center-of-mass stuff
-if wantfigs && wantsliceshift
+if wantfigs && wantsliceshift && isempty(wantpushalt)
   fprintf('writing out inspections of slice-shifting stuff...');
 
   % process each run
@@ -1021,41 +1093,51 @@ end
 fprintf('performing motion correction (if requested) and undistortion (if requested)...');
 if wantmotioncorrect
 
-  % NOTE: the following two things could be put together into a single step...
-
-  % slice-shift temporarily [NOTE: epistemp is int16 but gets converted to double/single]
-  if wantsliceshift
-    [epistemp,d,validvoltemp] = cellfun(@(x,y,z) undistortvolumes(x, ...
-                       episize,y,z,[]),epis,sliceshifts,num2cell(abs(epiphasedir)),'UniformOutput',0);
-    % yuck..  we have to explicitly convert to double/single and then set nan voxels to NaN
-    for p=1:length(epistemp)
-      epistemp{p} = squish(cast(epistemp{p},dformat),3);
-      epistemp{p}(find(~validvoltemp{p}),:) = NaN;
-      epistemp{p} = reshape(epistemp{p},sizefull(epis{p},4));
-    end
-  else
-    epistemp = epis;
-  end
-
-  % undistort temporarily [NOTE: epistemp is int16 but gets converted to double/single]
-  if wantundistort
-    [epistemp,d,validvoltemp] = cellfun(@(x,y,z) undistortvolumes(x,episize, ...
-      y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[]),epistemp,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
-    % yuck..  we have to explicitly convert to double/single and then set nan voxels to NaN
-    for p=1:length(epistemp)
-      epistemp{p} = squish(cast(epistemp{p},dformat),3);
-      epistemp{p}(find(~validvoltemp{p}),:) = NaN;
-      epistemp{p} = reshape(epistemp{p},sizefull(epis{p},4));
-    end
-  end
-
-  % estimate motion parameters from the slice-shifted and undistorted
-  [epistemp,mparams,refvol] = motioncorrectvolumes(epistemp,cellfun(@(x,y) [x y],repmat({episize},[1 length(epis)]),num2cell(epitr),'UniformOutput',0), ...
-    figuredir,motionreference,motioncutoff,[],1,[],[],mcmaskvol,epiignoremcvol,dformat);
-  clear epistemp;
-          %[epistemp,homogenizemask] = homogenizevolumes(epistemp,[99 1/4 2 2]);  % [],1
+  % if we are in the usual case (not pushing alternative data), then we have to calculate mparams and refvol
+  if isempty(wantpushalt)
   
-  % finally, resample once (dealing with extratrans and targetres) [NOTE: epis is int16]
+    % NOTE: the following two things could be put together into a single step...
+
+    % slice-shift temporarily [NOTE: epistemp is int16 but gets converted to double/single]
+    if wantsliceshift
+      [epistemp,d,validvoltemp] = cellfun(@(x,y,z) undistortvolumes(x, ...
+                         episize,y,z,[]),epis,sliceshifts,num2cell(abs(epiphasedir)),'UniformOutput',0);
+      % yuck..  we have to explicitly convert to double/single and then set nan voxels to NaN
+      for p=1:length(epistemp)
+        epistemp{p} = squish(cast(epistemp{p},dformat),3);
+        epistemp{p}(find(~validvoltemp{p}),:) = NaN;
+        epistemp{p} = reshape(epistemp{p},sizefull(epis{p},4));
+      end
+    else
+      epistemp = epis;
+    end
+
+    % undistort temporarily [NOTE: epistemp is int16 but gets converted to double/single]
+    if wantundistort
+      [epistemp,d,validvoltemp] = cellfun(@(x,y,z) undistortvolumes(x,episize, ...
+        y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[]),epistemp,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
+      % yuck..  we have to explicitly convert to double/single and then set nan voxels to NaN
+      for p=1:length(epistemp)
+        epistemp{p} = squish(cast(epistemp{p},dformat),3);
+        epistemp{p}(find(~validvoltemp{p}),:) = NaN;
+        epistemp{p} = reshape(epistemp{p},sizefull(epis{p},4));
+      end
+    end
+
+    % estimate motion parameters from the slice-shifted and undistorted
+    [epistemp,mparams,refvol] = motioncorrectvolumes(epistemp,cellfun(@(x,y) [x y],repmat({episize},[1 length(epis)]),num2cell(epitr),'UniformOutput',0), ...
+      figuredir,motionreference,motioncutoff,[],1,[],[],mcmaskvol,epiignoremcvol,dformat);
+    clear epistemp;
+            %[epistemp,homogenizemask] = homogenizevolumes(epistemp,[99 1/4 2 2]);  % [],1
+  
+  % if we are in the pushing alternative data case, let's just load in mparams
+  else
+    
+    load(wantpushalt,'mparams');     % JUST-IN-TIME LOADING
+
+  end
+  
+  % finally, resample once (dealing with extratrans and targetres) [NOTE: epis is int16, or complex int16]
   if wantundistort
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,w) undistortvolumes(x, ...
@@ -1082,7 +1164,7 @@ if wantmotioncorrect
 % if we're not doing motion correction then...
 else
 
-  % just slice-shift, undistort, and resample (dealing with extratrans and targetres) [NOTE: epis is int16]
+  % just slice-shift, undistort, and resample (dealing with extratrans and targetres) [NOTE: epis is int16, or complex int16]
   if wantundistort
     if wantsliceshift
       [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z) undistortvolumes(x, ...
@@ -1108,6 +1190,11 @@ else
 
 end
 fprintf('done.\n');
+
+%%% NOTE: at this point, for the phase angle case, we would normally want to 
+%%% revert back to true angles, e.g. int16(ang2complex(angle(temp0))*10000)
+%%% however, all the usage below of <epis> does not need this, so it would be 
+%%% just unnecessary computational time.  so let's skip it.
 
   reportmemoryandtime;
 
@@ -1153,11 +1240,11 @@ if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~iscell
   fprintf('writing out inspections of final EPI results...');
 
   % inspect first and last of each run
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,1)),epis,'UniformOutput',0)),sprintf('%s/EPIfinal/image%%04da',figuredir),[],[],1);
-  viewmovie(catcell(4,cellfun(@(x) double(x(:,:,:,end)),epis,'UniformOutput',0)),sprintf('%s/EPIfinal/image%%04db',figuredir),[],[],1);
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,1)),epis,'UniformOutput',0)),  sprintf('%s/EPIfinal/image%%04da',figuredir),[],prerng,1,precmap);
+  viewmovie(catcell(4,cellfun(@(x) prefun(x(:,:,:,end)),epis,'UniformOutput',0)),sprintf('%s/EPIfinal/image%%04db',figuredir),[],prerng,1,precmap);
 
   % inspect movie of first run
-  viewmovie(double(epis{1}(:,:,:,1:min(30,end))),sprintf('%s/MOVIEfinal/image%%04d',figuredir),[],[],1);
+  viewmovie(prefun(epis{1}(:,:,:,1:min(30,end))),sprintf('%s/MOVIEfinal/image%%04d',figuredir),[],prerng,1,precmap);
 
   fprintf('done.\n');
 end
@@ -1166,15 +1253,22 @@ end
 
 % final EPI calculations  [note: mean of int16 produces double! this is good, except for the NaN issue]
 fprintf('performing final EPI calculations...');
-meanvolrun = cellfun(@(x) int16(mean(x,dimtime)),epis,'UniformOutput',0);          % mean of each run
-  %OLD:
-  %meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
+if isreal(epis{1})
+  meanvolrun = cellfun(@(x) int16(mean(x,dimtime)),epis,'UniformOutput',0);          % mean of each run
+  meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
+else
+  meanvolrun = [];
+  meanvol = [];
+end
 validvolrun = validvolrun;                                                         % logical of which voxels have no nans (in each run)
 validvol = all(catcell(dimtime,validvolrun),dimtime);                              % logical of which voxels have no nans (over all runs)
   % deal with temporal SNR
-[tsnr,mn,mad] = computetemporalsnr(catcell(dimtime,epis),dimtime);
-meanvol = int16(mn);                                                               % mean over all runs
-additionalvol = {mad tsnr};
+if isreal(epis{1})
+  [tsnr,~,mad] = computetemporalsnr(single(epis{1}),dimtime);
+  additionalvol = {mad tsnr};
+else
+  additionalvol = {[]  []  };
+end
 if iscell(extratrans)
   finalepisize = [];
 else
@@ -1185,13 +1279,28 @@ else
   end
 end
   % some final adjustments for invalid voxels
-meanvolrun = cellfun(@(x,y) copymatrix(x,~y,0),meanvolrun,validvolrun,'UniformOutput',0);
-meanvol(~validvol) = 0;                  % invalid gets mean 0
-additionalvol{1}(~validvol) = 0;         % invalid gets mad 0
-additionalvol{2}(~validvol) = NaN;       % invalid gets tsnr NaN
+if ~isempty(meanvolrun)
+  meanvolrun = cellfun(@(x,y) copymatrix(x,~y,0),meanvolrun,validvolrun,'UniformOutput',0);
+end
+if ~isempty(meanvol)
+  meanvol(~validvol) = 0;                  % invalid gets mean 0
+end
+if ~isempty(additionalvol{1})
+  additionalvol{1}(~validvol) = 0;         % invalid gets mad 0
+end
+if ~isempty(additionalvol{2})
+  additionalvol{2}(~validvol) = NaN;       % invalid gets tsnr NaN
+end
 fprintf('done.\n');
 
   reportmemoryandtime;
+
+% in the case of phase angles, we have to do some final post-processing of epis
+if ~isreal(epis{1})
+  for p=1:length(epis)
+    epis{p} = mod(int16(mod(angle(single(epis{p})),2*pi) * (4095/(2*pi))),4095);  % reverse is double(x) * (2*pi/4095)
+  end
+end
 
 % zero out data
 fprintf('zeroing out data for bad voxels...');
@@ -1210,9 +1319,10 @@ fprintf('done.\n');
 clear xx yy zz xxB yyB zzB temp;
 clear fieldmaps fieldmapbrains fieldmapunwraps;
 clear sliceshifts finalfieldmaps;
+clear prefun
   
 % do fMRI quality
-if wantfigs && ~iscell(targetres) && ~iscell(extratrans) && ~isequalwithequalnans(fmriqualityparams,NaN)
+if wantfigs && ~iscell(targetres) && ~iscell(extratrans) && ~isequalwithequalnans(fmriqualityparams,NaN) && isempty(wantpushalt)
   fprintf('calling fmriquality.m on the epis...');
   if ~isempty(inplanes)
     inplaneextra = {sizefull(inplanes{1},2) inplanesizes{1}(1:2)};

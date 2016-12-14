@@ -207,6 +207,11 @@ else
     
   end
   
+  % input
+  if ~exist('fieldmapsizes','var')
+    fieldmapsizes = [];
+  end
+  
   % massage
   if ~iscell(fieldmapsizes)
     fieldmapsizes = {fieldmapsizes};

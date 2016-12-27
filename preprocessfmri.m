@@ -88,7 +88,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   the 1st and 4th slices were acquired first, then the 2nd and 5th slices, 
 %   and then the 3rd and 6th slices.  can also be {X NEWTR} which is the same
 %   as the {X} case except that we prepare the data at a new TR (NEWTR) and
-%   in doing so we use spline interpolation (and first and last data point padding)
+%   in doing so we use pchip interpolation (and first and last data point padding)
 %   (instead of the usual sinc interpolation).  NEWTR can be a vector in which
 %   case different runs get different TRs.  can also be {X NEWTR NEWOFFSET} which
 %   allows temporal offsets (positive means start in the future) in seconds, where
@@ -233,7 +233,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %     interpolating each slice to the time of the first slice.  to obtain new values,
 %     we use sinc interpolation, replicating the first and last time points to handle
 %     edge issues.  (in the case where <episliceorder> is a cell vector of length 2,
-%     we use spline interpolation and change the TR of the data.)
+%     we use pchip interpolation and change the TR of the data.)
 %  4. for each EPI run, we compute the temporal SNR.  this is performed by regressing
 %     out a line from each voxel's time-series, computing the absolute value of the
 %     difference between successive time points, computing the median of these absolute
@@ -377,6 +377,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2016/12/27 - switch back to pchip temporal interpolation!
 % 2016/08/09 - switch to spline temporal interpolation instead of cubic!!
 % 2016/05/02 - add support for <wantpushalt> and the phase-angle case of <epis>; also,
 %              the <additionalvol> stuff is now computed only for first run
@@ -716,13 +717,13 @@ if ~isempty(episliceorder)
       epis = cellfun(@(x,y) sincshift(x,repmat(reshape((1-y)/max(y),1,1,[]),[size(x,1) size(x,2)]),4), ...
                      epis,repmat({episliceorder{1}},[1 length(epis)]),'UniformOutput',0);
     else
-      % this is the special case where we are changing the TR [spline interpolation with padding]
+      % this is the special case where we are changing the TR [pchip interpolation with padding]
       for p=1:length(epis)
         epistemp = cast([],class(epis{p}));
         for q=1:size(epis{p},3)  % process each slice separately
           temp0 = tseriesinterp(single(epis{p}(:,:,q,:)),epitr(p),episliceorder{2}(p),4,[], ...
                                 -(((1-episliceorder{1}(q))/max(episliceorder{1})) * epitr(p)) - episliceorder{3}(p), ...
-                                1,'spline');
+                                1,'pchip');
           if ~isreal(temp0)  % in the phase angle case, we have to revert back to true angles
             temp0 = int16(ang2complex(angle(temp0))*10000);
           end

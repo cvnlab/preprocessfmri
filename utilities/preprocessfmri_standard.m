@@ -282,7 +282,11 @@ for p=1:length(epis)
       savebinary(sprintf(savefile,p),'int16',squish(int16(epis{p}),3)');  % special flattened format: time x voxels
     else
       if iscell(episliceorder) && length(episliceorder)==2  % in this case we can actually change the TR
-        epitrtouse = episliceorder{2};
+        if length(episliceorder{2}) > 1
+          epitrtouse = episliceorder{2}(p);
+        else
+          epitrtouse = episliceorder{2};
+        end
       else
         epitrtouse = epitr{p};
       end

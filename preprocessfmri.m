@@ -202,6 +202,10 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 % <epismoothfwhm> is a 3-element vector with the desired FWHM of a Gaussian filter.
 %   if supplied, we smooth the EPI volumes right after slice time correction.
 %   Default is [] which means do nothing.
+%   Special case is [P X Y Z] where P is the integer number of pads to use
+%   and X Y Z is the desired simulated voxel size -- in this case we use
+%   replication to pad each side of the volumes and then use the <mode>==1 
+%   case of smoothvolumes.m to use ideal Fourier filtering to achieve smoothing.
 % <wantpushalt> is either [] which means do nothing special or a path to a record.mat
 %   file from a previous call.  in this case, mcmask must not be {}, and the 
 %   fmriquality stuff is skipped.  the effect of <wantpushalt> is to skip some 
@@ -377,6 +381,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2017/11/29 - implement the [P X Y Z] case of <epismoothfwhm>
 % 2016/12/27 - switch back to pchip temporal interpolation!
 % 2016/08/09 - switch to spline temporal interpolation instead of cubic!!
 % 2016/05/02 - add support for <wantpushalt> and the phase-angle case of <epis>; also,
@@ -746,7 +751,18 @@ end
 % smooth volumes if desired
 if ~isempty(epismoothfwhm)
   fprintf('smoothing volumes...');
-  epis = smoothvolumes(epis,episize,epismoothfwhm);
+  if length(epismoothfwhm)==3
+    epis = smoothvolumes(epis,episize,epismoothfwhm);
+  else
+    for zz=1:length(epis)
+      temp = padarray(epis{zz},repmat(epismoothfwhm(1),[1 3]),'replicate','both');
+      temp = smoothvolumes(temp,episize,epismoothfwhm(2:4),1);
+      epis{zz} = temp(epismoothfwhm(1)+1:end-epismoothfwhm(1), ...
+                      epismoothfwhm(1)+1:end-epismoothfwhm(1), ...
+                      epismoothfwhm(1)+1:end-epismoothfwhm(1),:);
+    end
+    clear temp;
+  end
   fprintf('done.\n');
 end
 if ~isreal(epis{1})  % in the phase angle case, we have to revert back to true angles

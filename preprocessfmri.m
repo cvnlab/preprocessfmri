@@ -381,6 +381,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2018/07/27 - tweak code to reduce memory usage
 % 2017/11/29 - implement the [P X Y Z] case of <epismoothfwhm>
 % 2016/12/27 - switch back to pchip temporal interpolation!
 % 2016/08/09 - switch to spline temporal interpolation instead of cubic!!
@@ -1272,7 +1273,13 @@ end
 fprintf('performing final EPI calculations...');
 if isreal(epis{1})
   meanvolrun = cellfun(@(x) int16(mean(x,dimtime)),epis,'UniformOutput',0);          % mean of each run
-  meanvol = int16(mean(catcell(dimtime,epis),dimtime));                              % mean over all runs
+    % mean over all runs (implement like this to save on memory usage)
+  temp = 0; tempn = 0;
+  for p=1:length(epis)
+    temp = temp + sum(epis{p},dimtime);
+    tempn = tempn + size(epis{p},dimtime);
+  end
+  meanvol = int16(temp / tempn);
 else
   meanvolrun = [];
   meanvol = [];
@@ -1324,9 +1331,17 @@ fprintf('zeroing out data for bad voxels...');
 switch maskoutnans
 case 0
 case 1
-  epis = cellfun(@(x) copymatrix(x,repmat(~validvol,[ones(1,dimdata) size(x,dimtime)]),0),epis,'UniformOutput',0);
+    % OLD: this way might take too much memory:
+    % epis = cellfun(@(x) copymatrix(x,repmat(~validvol,[ones(1,dimdata) size(x,dimtime)]),0),epis,'UniformOutput',0);
+  for p=1:length(epis)
+    epis{p}(repmat(~validvol,[ones(1,dimdata) size(epis{p},dimtime)])) = 0;
+  end
 case 2
-  epis = cellfun(@(x,y) copymatrix(x,repmat(~y,[ones(1,dimdata) size(x,dimtime)]),0),epis,validvolrun,'UniformOutput',0);
+    % OLD: this way might take too much memory:
+    % epis = cellfun(@(x,y) copymatrix(x,repmat(~y,[ones(1,dimdata) size(x,dimtime)]),0),epis,validvolrun,'UniformOutput',0);
+  for p=1:length(epis)
+    epis{p}(repmat(~validvolrun{p},[ones(1,dimdata) size(epis{p},dimtime)])) = 0;
+  end
 end
 fprintf('done.\n');
 

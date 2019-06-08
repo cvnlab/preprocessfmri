@@ -37,7 +37,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   (1) 0 means no.
 %   (2) 1 means yes and use the '-s -t 0' flags in prelude.
 %   (3) a string with the specific flags to use (e.g. '', '-f').
-%   can be a cell vector of things like (1)-(3), and can be {}.  should mirror <fieldmaps>.  
+%   can be a cell vector of things like (1)-(3).  should mirror <fieldmaps>.  
 %   if a single element, we automatically repeat that element for multiple <fieldmaps>.
 % <fieldmapsmoothing> is a 3-element vector with the size of the
 %   bandwidth in mm to use in the local linear regression or a cell vector
@@ -51,7 +51,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   which means to omit smoothing.  for details on the meaning of the bandwidth,
 %   see localregression3d.m, but here is an example: if <fieldmapsmoothing> is
 %   [7.5 7.5 7.5], this means that the smoothing kernel should fall to 0 when
-%   you are 7.5 mm away from the center point.
+%   you are 7.5 mm away from the center point.  finally, a special case is
+%   to specify [X Y Z 1] which means to impose extra regularization of the fieldmap
+%   values towards 0 (for regions of the fieldmap with very low magnitude values).
 % <epis> is a 4D volume or a cell vector of 4D volumes.
 %   these volumes should be double format but should be suitable for 
 %   interpretation as int16.  there must be at least one EPI run.  
@@ -152,7 +154,11 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   dimension.  <extratrans> can also be {X} where X is 4 x vertices, indicating
 %   the exact locations (relative to the matrix space of the 3D volume) at which
 %   to sample the data.  in this case, <targetres> must be [] and <finalepisize>
-%   is returned as [].  default: eye(4).
+%   is returned as [].  <extratrans> can also be {X Y Z} where X, Y, and Z are
+%   3D volumes that specify the exact locations (relative to the matrix space
+%   of the original 3D volume) at which to sample the data.  in this case,
+%   <targetres> must be [] (it is implicitly determined) and <finalepisize>
+%   is returned as []. default: eye(4).
 % <targetres> (optional) is
 %   (1) [X Y Z], a 3-element vector with the number of voxels desired for the final 
 %       output.  if supplied, then volumes will be interpolated only at the points 
@@ -210,7 +216,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   file from a previous call.  in this case, mcmask must not be {}, and the 
 %   fmriquality stuff is skipped.  the effect of <wantpushalt> is to skip some 
 %   processing --- specifically, we load in the previous <sliceshifts>, <mparams>,
-%   and <smoothfieldmaps> and use them as-is.
+%   and <smoothfieldmaps> and use them as-is.  can also be {A SS MP SFM} where A
+%   is the path and SS, MP, and SFM is 0/1 indicating whether to load these previous
+%   results and use them.
 %
 % here's the short version:
 %   we process the EPI data by (1) dropping the first few volumes (e.g. to avoid
@@ -381,6 +389,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2019/06/08 - implement special [X Y Z 1] case for <fieldmapsmoothing>
+% 2019/01/16 - new case for <wantpushalt>
+% 2019/01/12 - implement {X Y Z} case for <extratrans>
 % 2018/07/27 - tweak code to reduce memory usage
 % 2017/11/29 - implement the [P X Y Z] case of <epismoothfwhm>
 % 2016/12/27 - switch back to pchip temporal interpolation!
@@ -547,6 +558,9 @@ if ~isempty(fieldmaps)  % disregard the {} case...
   % (1) fieldmaps is {} (which is the no undistortion case) and fieldmaptimes is not defined
   % (2) fieldmaps is A (cell vector of fieldmaps) and fieldmaptimes is fully specified
 end
+if ischar(wantpushalt)
+  wantpushalt = {wantpushalt 1 1 1};
+end
 if ~iscell(epis)
   episissingle = 1;
   epis = {epis};
@@ -566,7 +580,7 @@ end
 if length(fieldmapdeltate)==1
   fieldmapdeltate = repmat(fieldmapdeltate,[1 length(fieldmaps)]);
 end
-if length(fieldmapunwrap)==1
+if (isnumeric(fieldmapunwrap) && length(fieldmapunwrap)==1) || ischar(fieldmapunwrap)
   fieldmapunwrap = repmat({fieldmapunwrap},[1 length(fieldmaps)]);
 end
 if length(fieldmapsmoothing)==1
@@ -593,7 +607,7 @@ if isempty(epiinplanematrixsize)
 end
 
 % deal with special extratrans case
-if iscell(extratrans)
+if iscell(extratrans) && length(extratrans)==1
   dimdata = 1;
   dimtime = 2;
 else
@@ -815,7 +829,7 @@ end
 fmapsc = 1./(fieldmapdeltate/1000)/2;  % vector of values like 250 (meaning +/- 250 Hz)
 
 % write out fieldmap inspections
-if wantfigs && wantundistort && isempty(wantpushalt)
+if wantfigs && wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
   fprintf('writing out various fieldmap inspections...');
 
   % write out fieldmaps, fieldmaps brains, and histogram of fieldmap
@@ -855,7 +869,7 @@ end
 
 % unwrap fieldmaps
 fieldmapunwraps = {};
-if wantundistort && isempty(wantpushalt)
+if wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
   fprintf('unwrapping fieldmaps if requested...');
   parfor p=1:length(fieldmaps)
   
@@ -895,7 +909,7 @@ end
   reportmemoryandtime;
 
 % write out inspections of the unwrapping and additional fieldmap inspections
-if wantfigs && wantundistort && isempty(wantpushalt)
+if wantfigs && wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
   fprintf('writing out inspections of the unwrapping and additional inspections...');
   
   % write inspections of unwraps
@@ -921,7 +935,7 @@ end
 
 % use local linear regression to smooth the fieldmaps
 smoothfieldmaps = cell(1,length(fieldmapunwraps));
-if wantundistort && ~isequalwithequalnans(epifieldmapasst,NaN) && isempty(wantpushalt)
+if wantundistort && ~isequalwithequalnans(epifieldmapasst,NaN) && (isempty(wantpushalt) || wantpushalt{4}==0)
   fprintf('smooth the fieldmaps...');
   for p=1:length(fieldmapunwraps)
     if isnan(fieldmapsmoothing{p})
@@ -931,7 +945,31 @@ if wantundistort && ~isequalwithequalnans(epifieldmapasst,NaN) && isempty(wantpu
       [xx,yy,zz] = ndgrid(1:fsz(1),1:fsz(2),1:fsz(3));
       [xi,yi] = calcpositiondifferentfov(fsz(1:2),fieldmapsizes{p}(1:2),epidim(1:2),episize(1:2));
       [xxB,yyB,zzB] = ndgrid(yi,xi,1:fsz(3));
-      smoothfieldmaps{p} = nanreplace(localregression3d(xx,yy,zz,fieldmapunwraps{p},xxB,yyB,zzB,[],[],fieldmapsmoothing{p} ./ fieldmapsizes{p},fieldmapbrains{p},1),0,3);
+      
+      if length(fieldmapsmoothing{p}) > 3 && fieldmapsmoothing{p}(4)
+
+        % regularize the fieldmap values based on intensity of the magnitude component (below a threshold, we rapidly bias towards 0)
+        t0 = prctile(fieldmapbrains{p}(:),99.9)*0.1;
+        mask = fieldmapbrains{p};
+        mask(mask > t0) = t0;
+        mask = (mask / t0) .^ 2;  % at this point, the mask is a squaring function from 0 to 1 and then always 1 after that
+      
+        % write out inspections of this step
+        imwrite(uint8(255*makeimagestack(mask,[0 1])),gray(256),sprintf('%s/fieldmapmask%02d.png',figuredir,p));
+        imwrite(uint8(255*makeimagestack(fieldmapunwraps{p} .* mask,[-1 1]*fmapsc(p))),jet(256),sprintf('%s/fieldmapunwrappedmasked%02d.png',figuredir,p));
+
+      else
+      
+        mask = 1;
+
+      end
+      
+      % proceed to smoothing
+      smoothfieldmaps{p} = nanreplace(localregression3d(xx,yy,zz,fieldmapunwraps{p} .* mask,xxB,yyB,zzB,[],[],fieldmapsmoothing{p}(1:3) ./ fieldmapsizes{p},fieldmapbrains{p},1),0,3);
+      
+      % clean up
+      clear mask;
+      
     end
   end
   fprintf('done.\n');
@@ -940,7 +978,7 @@ end
   reportmemoryandtime;
 
 % write out smoothed fieldmap inspections
-if wantfigs && wantundistort && isempty(wantpushalt)
+if wantfigs && wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
   fprintf('writing out smoothed fieldmaps...');
 
   % write out fieldmap and fieldmap resampled to match the original fieldmap
@@ -967,8 +1005,8 @@ if wantundistort
   fprintf('deal with epi fieldmap assignment and time interpolation...');
 
   % if push-alternative-data case, we have to load in smoothfieldmaps
-  if ~isempty(wantpushalt)
-    load(wantpushalt,'smoothfieldmaps');     % JUST-IN-TIME LOADING
+  if ~isempty(wantpushalt) && wantpushalt{4}==1
+    load(wantpushalt{1},'smoothfieldmaps');     % JUST-IN-TIME LOADING
   end
 
   % calculate the final fieldmaps [we use single to save on memory]
@@ -1017,7 +1055,7 @@ end
 % calculate center-of-mass stuff
 if wantsliceshift
 
-  if isempty(wantpushalt)
+  if isempty(wantpushalt) || wantpushalt{2}==0
 
     % calculate center-of-mass after rectifying the epis.  each element of the cell vector is 1 x 2 x slices x time.
     com = cellfun(@(x) centerofmass(posrect(x),[1 2],2),epis,'UniformOutput',0);
@@ -1032,7 +1070,7 @@ if wantsliceshift
   
   else
   
-    load(wantpushalt,'sliceshifts');     % JUST-IN-TIME LOADING
+    load(wantpushalt{1},'sliceshifts');     % JUST-IN-TIME LOADING
     
   end
     
@@ -1041,7 +1079,7 @@ end
   reportmemoryandtime;
 
 % write out inspections of center-of-mass stuff
-if wantfigs && wantsliceshift && isempty(wantpushalt)
+if wantfigs && wantsliceshift && (isempty(wantpushalt) || wantpushalt{2}==0)
   fprintf('writing out inspections of slice-shifting stuff...');
 
   % process each run
@@ -1112,7 +1150,7 @@ fprintf('performing motion correction (if requested) and undistortion (if reques
 if wantmotioncorrect
 
   % if we are in the usual case (not pushing alternative data), then we have to calculate mparams and refvol
-  if isempty(wantpushalt)
+  if isempty(wantpushalt) || wantpushalt{3}==0
   
     % NOTE: the following two things could be put together into a single step...
 
@@ -1151,7 +1189,7 @@ if wantmotioncorrect
   % if we are in the pushing alternative data case, let's just load in mparams
   else
     
-    load(wantpushalt,'mparams');     % JUST-IN-TIME LOADING
+    load(wantpushalt{1},'mparams');     % JUST-IN-TIME LOADING
 
   end
   
@@ -1254,7 +1292,7 @@ end
   reportmemoryandtime;
 
 % write out EPI final inspections
-if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~iscell(extratrans)
+if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~(iscell(extratrans) && length(extratrans)==1)
   fprintf('writing out inspections of final EPI results...');
 
   % inspect first and last of each run
@@ -1354,7 +1392,8 @@ clear sliceshifts finalfieldmaps;
 clear prefun
   
 % do fMRI quality
-if wantfigs && ~iscell(targetres) && ~iscell(extratrans) && ~isequalwithequalnans(fmriqualityparams,NaN) && isempty(wantpushalt)
+if wantfigs && ~iscell(targetres) && ~(iscell(extratrans) && length(extratrans)==1) && ...
+    ~isequalwithequalnans(fmriqualityparams,NaN) && isempty(wantpushalt)
   fprintf('calling fmriquality.m on the epis...');
   if ~isempty(inplanes)
     inplaneextra = {sizefull(inplanes{1},2) inplanesizes{1}(1:2)};

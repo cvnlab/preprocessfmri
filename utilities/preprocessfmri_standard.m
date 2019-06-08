@@ -1,4 +1,5 @@
 % history:
+% 2019/06/08 - add extra modifiers (fixepifun, fieldmapslicerangeALT, finalepisizeOVERRIDE)
 % 2016/05/02 - add support for <wantpushalt> and the case of <epifilenames> being NaN
 % 2016/02/05 - add <epismoothfwhm>
 % 2015/11/15 - implement special cell2 case of episliceorder
@@ -110,6 +111,10 @@ else
   assert(isequalwithequalnans(epifilenames,NaN));  % NOTE: the relevant variables should already be defined by the user!
 end
 fprintf('done (loading EPI data).\n');
+
+if exist('fixepifun','var') && ~isempty(fixepifun)
+  epis = feval(fixepifun,epis);
+end
 
 reportmemoryandtime;
 
@@ -237,6 +242,10 @@ if ~isempty(fieldmapslicefactor)
     fieldmapbrains{p} = upsamplematrix(fieldmapbrains{p},[1 1 fieldmapslicefactor],[],[],'nearest');
     fieldmapsizes{p}(3) = fieldmapsizes{p}(3) / fieldmapslicefactor;
   end
+  if exist('fieldmapslicerangeALT','var') && ~isempty(fieldmapslicerangeALT)
+    fieldmaps = cellfun(@(x) subscript(x,fieldmapslicerangeALT),fieldmaps,'UniformOutput',0);
+    fieldmapbrains = cellfun(@(x) subscript(x,fieldmapslicerangeALT),fieldmapbrains,'UniformOutput',0);
+  end
 end
 fprintf('done (resampling fieldmap data).\n');
 
@@ -264,12 +273,17 @@ fprintf('done (calling preprocessfmri).\n');
 
 reportmemoryandtime;
 
+% deal with a special case
+if exist('finalepisizeOVERRIDE','var')
+  finalepisize = finalepisizeOVERRIDE;
+end
+
 % save it
 fprintf('saving data...');
   %%% first deal with EPI
 mkdirquiet(stripfile(savefile));
 for p=1:length(epis)
-  if iscell(extratrans)
+  if iscell(extratrans) && length(extratrans)==1
     if exist('cvn','var') && ~isempty(cvn)
       cvn.data = permute(reshape(epis{p},cvn.numlh+cvn.numrh,cvn.numlayers,size(epis{p},2)),[3 2 1]);
       save(sprintf(savefile,p),'-struct','cvn','-v7.3');
@@ -304,7 +318,7 @@ for p=1:length(additional)
     vol0 = additionalvars{p};
     if ~isempty(vol0)
       mkdirquiet(stripfile(savefile0));
-      if iscell(extratrans)
+      if iscell(extratrans) && length(extratrans)==1
         if exist('cvn','var') && ~isempty(cvn)
           cvn.data = permute(reshape(vol0,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
           save(savefile0,'-struct','cvn','-v7.3');

@@ -17,6 +17,7 @@ The code has several dependencies:
 
 Notes:
 - The code is incompatible with newer versions of the NIFTI toolbox.
+  Update: Actually, the code appears to be compatible with "NIfTI_20140122".
 - You may have to mex ba_interp3 for your own platform (try "which ba_interp3 -all").
 
 Contents:

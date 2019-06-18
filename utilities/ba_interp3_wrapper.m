@@ -5,7 +5,7 @@ function f = ba_interp3_wrapper(vol,coords,interptype)
 % <vol> is a 3D matrix (can be complex-valued)
 % <coords> is 3 x N with the matrix coordinates to interpolate at.
 %   one or more of the entries can be NaN.
-% <interptype> (optional) is 'nearest' | 'linear' | 'cubic'.  default: 'cubic'.
+% <interptype> (optional) is 'nearest' | 'linear' | 'cubic' | 'wta'.  default: 'cubic'.
 %
 % this is a convenient wrapper for ba_interp3.  the main problem with
 % normal calls to ba_interp3 is that it assigns values to interpolation
@@ -16,6 +16,12 @@ function f = ba_interp3_wrapper(vol,coords,interptype)
 % are returned as NaN and coordinates that have any NaNs are returned
 % as NaN.
 %
+% another feature is 'wta' (winner-take-all). this involves the assumption that 
+% <vol> contains only discrete integers. each distinct integer is mapped
+% as a binary volume (0s and 1s) using linear interpolation to each coordinate,
+% the integer with the largest resulting value at that coordinate wins, and that
+% coordinate is assigned the winning integer.
+%
 % we automatically convert <vol> and <coords> to double before calling
 % ba_interp3.m because it requires double format.  the output from
 % this function is also double.
@@ -23,6 +29,7 @@ function f = ba_interp3_wrapper(vol,coords,interptype)
 % for complex-valued data, we separately interpolate the real and imaginary parts.
 %
 % history:
+% 2019/06/18 - add support for 'wta'.
 % 2016/04/28 - add support for complex-valued data.
 % 2011/03/19 - be explicit on double conversion and double output.
 %
@@ -67,5 +74,39 @@ if ~isreal(vol)
                 ba_interp3(double(imag(vol)),double(coords(2,:)),double(coords(1,:)),double(coords(3,:)),interptype)), ...
         bad,NaN);
 else
-  f = copymatrix(ba_interp3(double(vol),double(coords(2,:)),double(coords(1,:)),double(coords(3,:)),interptype),bad,NaN);
+
+  % this is the tricky 'wta' case
+  if isequal(interptype,'wta')
+  
+    % figure out the discrete integer labels
+    alllabels = flatten(union(vol(:),[]));
+    assert(all(isfinite(alllabels)));
+    if length(alllabels) > 1000
+      warning('more than 1000 labels are present');
+    end
+    
+    % loop over each label
+    allvols = zeros([length(alllabels) size(coords,2)]);
+    for p=1:length(alllabels)
+      allvols(p,:) = ba_interp3(double(vol==alllabels(p)),double(coords(2,:)),double(coords(1,:)),double(coords(3,:)),'linear');
+    end
+    
+    % which coordinates have no label contribution?
+    realbad = sum(allvols,1)==0;
+    
+    % perform winner-take-all (f0 is the index relative to alllabels!)
+    [mx,f0] = max(allvols,[],1);
+  
+    % figure out the final labeling scheme
+    f = alllabels(f0);
+  
+    % fill in NaNs for coordinates with no label contribution and bad coordinates too
+    f(realbad) = NaN;
+    f(bad) = NaN;
+
+  % this is the usual easy case
+  else
+    f = copymatrix(ba_interp3(double(vol),double(coords(2,:)),double(coords(1,:)),double(coords(3,:)),interptype),bad,NaN);
+  end
+
 end

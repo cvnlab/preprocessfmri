@@ -8,8 +8,8 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% EDIT THIS:
 
 % start parallel MATLAB to speed up execution.
-if matlabpool('size')==0
-  matlabpool open;
+if isempty(gcp)
+  parpool;
 end
 
 % what directory do the data live in?

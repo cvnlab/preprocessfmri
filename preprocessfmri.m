@@ -389,6 +389,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2020/05/09 - MAJOR BUG FIX: episliceorder was getting set incorrectly for the
+%              'sequential' | 'interleaved' | 'interleavedalt' mode. this was causing
+%              slices to be corrected for a wrongly specified time offset.
 % 2019/06/08 - implement special [X Y Z 1] case for <fieldmapsmoothing>
 % 2019/01/16 - new case for <wantpushalt>
 % 2019/01/12 - implement {X Y Z} case for <extratrans>
@@ -633,14 +636,14 @@ end
 if ischar(episliceorder)
   switch episliceorder
   case 'sequential'
-    episliceorder = 1:epidim;
+    episliceorder = 1:epidim(3);
   case 'interleaved'
-    episliceorder = [1:2:epidim 2:2:epidim];
+    episliceorder = [1:2:epidim(3) 2:2:epidim(3)];
   case 'interleavedalt'
-    if mod(epidim,2)==0
-      episliceorder = [2:2:epidim 1:2:epidim];
+    if mod(epidim(3),2)==0
+      episliceorder = [2:2:epidim(3) 1:2:epidim(3)];
     else
-      episliceorder = [1:2:epidim 2:2:epidim];
+      episliceorder = [1:2:epidim(3) 2:2:epidim(3)];
     end
   otherwise
     error;

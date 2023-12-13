@@ -1,4 +1,5 @@
 % history:
+% 2023/12/13 - implement niftioverride; implement scale adjustment if epi data is above 32000
 % 2019/06/08 - add extra modifiers (fixepifun, fieldmapslicerangeALT, finalepisizeOVERRIDE)
 % 2016/05/02 - add support for <wantpushalt> and the case of <epifilenames> being NaN
 % 2016/02/05 - add <epismoothfwhm>
@@ -107,6 +108,23 @@ if iscell(epifilenames)
   %           clear temp;
   %         end
   %         epiindex = feval(epiindexfun,epis);
+  while 1
+    needscale = 0;
+    for p=1:length(epis)
+      if any(epis{p}(:)>32000)
+        fprintf('\n\n**** WARNING: epi values are above 32k. going to divide by 2.\n\n');
+        needscale = 1;
+        break;
+      end
+    end
+    if needscale
+      for p=1:length(epis)
+        epis{p} = epis{p} / 2;
+      end
+    else
+      break;
+    end
+  end
 else
   assert(isequalwithequalnans(epifilenames,NaN));  % NOTE: the relevant variables should already be defined by the user!
 end
@@ -304,7 +322,11 @@ for p=1:length(epis)
       else
         epitrtouse = epitr{p};
       end
-      save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitrtouse),sprintf(savefile,p));
+      if exist('niftioverride','var') && ~isempty(niftioverride)
+        nsd_savenifti2(int16(epis{p}),niftioverride,sprintf(savefile,p),epitrtouse);
+      else
+        save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitrtouse),sprintf(savefile,p));
+      end
     end
   end
 end
@@ -326,7 +348,11 @@ for p=1:length(additional)
           savebinary(savefile0,additionalunits{p},vol0);
         end
       else
-        save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
+        if exist('niftioverride','var') && ~isempty(niftioverride)
+          nsd_savenifti2(feval(additionalunits{p},vol0),niftioverride,savefile0);
+        else
+          save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
+        end
       end
     end
   end

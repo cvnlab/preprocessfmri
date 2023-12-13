@@ -158,7 +158,9 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   3D volumes that specify the exact locations (relative to the matrix space
 %   of the original 3D volume) at which to sample the data.  in this case,
 %   <targetres> must be [] (it is implicitly determined) and <finalepisize>
-%   is returned as []. default: eye(4).
+%   is returned as [].  <extratrans> can also be {{X1} {X2} ...} or 
+%   {{X1 Y1 Z1} {X2 Y2 Z2} ...} which provides separate inputs for each 
+%   individual run.  default: eye(4).
 % <targetres> (optional) is
 %   (1) [X Y Z], a 3-element vector with the number of voxels desired for the final 
 %       output.  if supplied, then volumes will be interpolated only at the points 
@@ -389,6 +391,7 @@ function [epis,finalepisize,validvol,meanvol,additionalvol] = preprocessfmri(fig
 %   at the MATLAB prompt and see whether it can call prelude successfully.
 % 
 % history:
+% 2023/11/23 - implement {{X1} ...} and {{X1 Y1 Z1} ...} cases for <extratrans>
 % 2020/05/09 - MAJOR BUG FIX: episliceorder was getting set incorrectly for the
 %              'sequential' | 'interleaved' | 'interleavedalt' mode. this was causing
 %              slices to be corrected for a wrongly specified time offset.
@@ -610,7 +613,16 @@ if isempty(epiinplanematrixsize)
 end
 
 % deal with special extratrans case
-if iscell(extratrans) && length(extratrans)==1
+if iscell(extratrans)
+  if iscell(extratrans{1})
+  else
+    extratrans = {extratrans};
+  end
+  if length(extratrans)==1
+    extratrans = repmat(extratrans,[1 length(epis)]);
+  end
+end
+if iscell(extratrans) && length(extratrans{1})==1
   dimdata = 1;
   dimtime = 2;
 else
@@ -1199,24 +1211,49 @@ if wantmotioncorrect
   % finally, resample once (dealing with extratrans and targetres) [NOTE: epis is int16, or complex int16]
   if wantundistort
     if wantsliceshift
-      [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,w) undistortvolumes(x, ...
-                     episize,bsxfun(@plus,sign(z)*y0, ...
-                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,w(2:end,:),extratrans,targetres0), ...
-                     epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,w,v) undistortvolumes(x, ...
+                       episize,bsxfun(@plus,sign(z)*y0, ...
+                                      y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,w(2:end,:),v,targetres0), ...
+                       epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),mparams,extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,w) undistortvolumes(x, ...
+                       episize,bsxfun(@plus,sign(z)*y0, ...
+                                      y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,w(2:end,:),extratrans,targetres0), ...
+                       epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
+      end
     else
-      [epis,voloffset,validvolrun] = cellfun(@(x,y,z,w) undistortvolumes(x,episize, ...
-                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,w(2:end,:),extratrans,targetres0), ...
-                     epis,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y,z,w,v) undistortvolumes(x,episize, ...
+                       y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,w(2:end,:),v,targetres0), ...
+                       epis,finalfieldmaps,num2cell(epiphasedir),mparams,extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y,z,w) undistortvolumes(x,episize, ...
+                       y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,w(2:end,:),extratrans,targetres0), ...
+                       epis,finalfieldmaps,num2cell(epiphasedir),mparams,'UniformOutput',0);
+      end
     end
   else
     if wantsliceshift
-      [epis,voloffset,validvolrun] = cellfun(@(x,y0,z,w) undistortvolumes(x, ...
-                     episize,y0,z,w(2:end,:),extratrans,targetres0), ...
-                     epis,sliceshifts,num2cell(abs(epiphasedir)),mparams,'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,z,w,v) undistortvolumes(x, ...
+                       episize,y0,z,w(2:end,:),v,targetres0), ...
+                       epis,sliceshifts,num2cell(abs(epiphasedir)),mparams,extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,z,w) undistortvolumes(x, ...
+                       episize,y0,z,w(2:end,:),extratrans,targetres0), ...
+                       epis,sliceshifts,num2cell(abs(epiphasedir)),mparams,'UniformOutput',0);
+      end
     else
-      [epis,voloffset,validvolrun] = cellfun(@(x,w) undistortvolumes(x, ...
-                     episize,[],[],w(2:end,:),extratrans,targetres0), ...
-                     epis,mparams,'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,w,v) undistortvolumes(x, ...
+                       episize,[],[],w(2:end,:),v,targetres0), ...
+                       epis,mparams,extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,w) undistortvolumes(x, ...
+                       episize,[],[],w(2:end,:),extratrans,targetres0), ...
+                       epis,mparams,'UniformOutput',0);
+      end
     end
   end
 
@@ -1226,24 +1263,49 @@ else
   % just slice-shift, undistort, and resample (dealing with extratrans and targetres) [NOTE: epis is int16, or complex int16]
   if wantundistort
     if wantsliceshift
-      [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z) undistortvolumes(x, ...
-                     episize,bsxfun(@plus,sign(z)*y0, ...
-                                    y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,[],extratrans,targetres0), ...
-                     epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z,v) undistortvolumes(x, ...
+                       episize,bsxfun(@plus,sign(z)*y0, ...
+                                      y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,[],v,targetres0), ...
+                       epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,y,z) undistortvolumes(x, ...
+                       episize,bsxfun(@plus,sign(z)*y0, ...
+                                      y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2))),z,[],extratrans,targetres0), ...
+                       epis,sliceshifts,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
+      end
     else
-      [epis,voloffset,validvolrun] = cellfun(@(x,y,z) undistortvolumes(x,episize, ...
-                     y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[],extratrans,targetres0), ...
-                     epis,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y,z,v) undistortvolumes(x,episize, ...
+                       y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[],v,targetres0), ...
+                       epis,finalfieldmaps,num2cell(epiphasedir),extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y,z) undistortvolumes(x,episize, ...
+                       y*(epireadouttime/1000)*(epidim(abs(z))/epiinplanematrixsize(2)),z,[],extratrans,targetres0), ...
+                       epis,finalfieldmaps,num2cell(epiphasedir),'UniformOutput',0);
+      end
     end
   else
     if wantsliceshift
-      [epis,voloffset,validvolrun] = cellfun(@(x,y0,z) undistortvolumes(x, ...
-                     episize,y0,z,[],extratrans,targetres0), ...
-                     epis,sliceshifts,num2cell(abs(epiphasedir)),'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,z,v) undistortvolumes(x, ...
+                       episize,y0,z,[],v,targetres0), ...
+                       epis,sliceshifts,num2cell(abs(epiphasedir)),extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x,y0,z) undistortvolumes(x, ...
+                       episize,y0,z,[],extratrans,targetres0), ...
+                       epis,sliceshifts,num2cell(abs(epiphasedir)),'UniformOutput',0);
+      end
     else
-      [epis,voloffset,validvolrun] = cellfun(@(x) undistortvolumes(x, ...
-                     episize,[],[],[],extratrans,targetres0), ...
-                     epis,'UniformOutput',0);
+      if iscell(extratrans)
+        [epis,voloffset,validvolrun] = cellfun(@(x,v) undistortvolumes(x, ...
+                       episize,[],[],[],v,targetres0), ...
+                       epis,extratrans,'UniformOutput',0);
+      else
+        [epis,voloffset,validvolrun] = cellfun(@(x) undistortvolumes(x, ...
+                       episize,[],[],[],extratrans,targetres0), ...
+                       epis,'UniformOutput',0);
+      end
     end
   end
 
@@ -1295,7 +1357,7 @@ end
   reportmemoryandtime;
 
 % write out EPI final inspections
-if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~(iscell(extratrans) && length(extratrans)==1)
+if wantfigs && (wantmotioncorrect || wantundistort || wantsliceshift) && ~(iscell(extratrans) && length(extratrans{1})==1)
   fprintf('writing out inspections of final EPI results...');
 
   % inspect first and last of each run
@@ -1395,7 +1457,7 @@ clear sliceshifts finalfieldmaps;
 clear prefun
   
 % do fMRI quality
-if wantfigs && ~iscell(targetres) && ~(iscell(extratrans) && length(extratrans)==1) && ...
+if wantfigs && ~iscell(targetres) && ~(iscell(extratrans) && length(extratrans{1})==1) && ...
     ~isequalwithequalnans(fmriqualityparams,NaN) && isempty(wantpushalt)
   fprintf('calling fmriquality.m on the epis...');
   if ~isempty(inplanes)
@@ -1413,7 +1475,7 @@ end
 if ~isempty(figuredir)
   fprintf('saving record.mat...');
   clear inplanes;
-  saveexcept(fullfile(figuredir,'record.mat'),'epis');  % ignore this big variable, but we need it upon function completion
+  saveexcept(fullfile(figuredir,'record.mat'),{'epis' 'extratrans'});  % ignore this big variable, but we need it upon function completion
   fprintf('done.\n');
 end
 

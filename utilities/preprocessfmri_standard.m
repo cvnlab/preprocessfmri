@@ -1,4 +1,5 @@
 % history:
+% 2024/04/26 - whoops, update extratrans handling for per-run specification
 % 2023/12/13 - implement niftioverride; implement scale adjustment if epi data is above 32000
 % 2019/06/08 - add extra modifiers (fixepifun, fieldmapslicerangeALT, finalepisizeOVERRIDE)
 % 2016/05/02 - add support for <wantpushalt> and the case of <epifilenames> being NaN
@@ -301,7 +302,7 @@ fprintf('saving data...');
   %%% first deal with EPI
 mkdirquiet(stripfile(savefile));
 for p=1:length(epis)
-  if iscell(extratrans) && length(extratrans)==1
+  if (iscell(extratrans) && ~iscell(extratrans{1}) && length(extratrans)==1) || (iscell(extratrans) && iscell(extratrans{1}) && length(extratrans{1})==1)
     if exist('cvn','var') && ~isempty(cvn)
       cvn.data = permute(reshape(epis{p},cvn.numlh+cvn.numrh,cvn.numlayers,size(epis{p},2)),[3 2 1]);
       save(sprintf(savefile,p),'-struct','cvn','-v7.3');
@@ -340,7 +341,7 @@ for p=1:length(additional)
     vol0 = additionalvars{p};
     if ~isempty(vol0)
       mkdirquiet(stripfile(savefile0));
-      if iscell(extratrans) && length(extratrans)==1
+      if (iscell(extratrans) && ~iscell(extratrans{1}) && length(extratrans)==1) || (iscell(extratrans) && iscell(extratrans{1}) && length(extratrans{1})==1)
         if exist('cvn','var') && ~isempty(cvn)
           cvn.data = permute(reshape(vol0,cvn.numlh+cvn.numrh,cvn.numlayers,1),[3 2 1]);
           save(savefile0,'-struct','cvn','-v7.3');

@@ -1,4 +1,5 @@
 % history:
+% 2025/12/04 - add <niftioverridemask>
 % 2024/04/26 - whoops, update extratrans handling for per-run specification
 % 2023/12/13 - implement niftioverride; implement scale adjustment if epi data is above 32000
 % 2019/06/08 - add extra modifiers (fixepifun, fieldmapslicerangeALT, finalepisizeOVERRIDE)
@@ -324,7 +325,12 @@ for p=1:length(epis)
         epitrtouse = epitr{p};
       end
       if exist('niftioverride','var') && ~isempty(niftioverride)
-        nsd_savenifti2(int16(epis{p}),niftioverride,sprintf(savefile,p),epitrtouse);
+        if exist('niftioverridemask','var') && ~isempty(niftioverridemask)
+          niftioverridemaskvals = double(double(resliceniftitomatch(niftioverride,niftioverridemask,[],'nearest'))==1);
+          nsd_savenifti2(int16(epis{p} .* repmat(int16(niftioverridemaskvals),[1 1 1 size(epis{p},4)])),niftioverride,sprintf(savefile,p),epitrtouse);
+        else
+          nsd_savenifti2(int16(epis{p}),niftioverride,sprintf(savefile,p),epitrtouse);
+        end
       else
         save_nii(settr_nii(make_nii(int16(epis{p}),finalepisize),epitrtouse),sprintf(savefile,p));
       end
@@ -350,7 +356,11 @@ for p=1:length(additional)
         end
       else
         if exist('niftioverride','var') && ~isempty(niftioverride)
-          nsd_savenifti2(feval(additionalunits{p},vol0),niftioverride,savefile0);
+          if exist('niftioverridemask','var') && ~isempty(niftioverridemask)
+            nsd_savenifti2(feval(additionalunits{p},double(vol0) .* niftioverridemaskvals),niftioverride,savefile0);
+          else
+            nsd_savenifti2(feval(additionalunits{p},vol0),niftioverride,savefile0);
+          end
         else
           save_nii(make_nii(feval(additionalunits{p},vol0),finalepisize),savefile0);
         end

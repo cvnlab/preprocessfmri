@@ -896,7 +896,8 @@ if wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
             %       % make a complex fieldmap and save to tmp1
             %       save_untouch_nii(make_ana(fieldmapbrains{p} .* exp(j*fieldmaps{p}),fieldmapsizes{p},[],32),tmp1);
       % make a complex fieldmap and save to tmp1
-      save_nii(make_nii(fieldmapbrains{p} .* exp(j*fieldmaps{p}),fieldmapsizes{p},[],32),tmp1);
+      tmpdata = fieldmapbrains{p} .* exp(j*fieldmaps{p});
+      save_nii(make_nii(tmpdata,fieldmapsizes{p},[],32),tmp1);
 
       % use prelude to unwrap, saving to tmp2
       unix_wrapper(sprintf('prelude -c %s -o %s %s; gunzip %s.nii.gz',tmp1,tmp2,fieldmapunwrap{p},tmp2));
@@ -904,11 +905,22 @@ if wantundistort && (isempty(wantpushalt) || wantpushalt{4}==0)
       % load in the unwrapped fieldmap
       temp = load_nii(sprintf('%s.nii',tmp2));  % OLD: temp = readFileNifti(tmp2);
       
-      % HACK (WHY IS THIS NECESSARY?)
-      temp.img = flipdim(temp.img,1);
+      % for some reason (possibly historical), we might have to apply this HACK (WHY IS THIS NECESSARY?)
+      temp_1 = cos(angle(tmpdata));
+      temp_2 = cos(double(temp.img));
+        % if as-is is not as good as flipping
+      cor_1 = corr(temp_1(:),temp_2(:));
+      cor_2 = corr(temp_1(:),vflatten(flipdim(temp_2,1)));
+      if cor_1 < cor_2
+        temp.img = flipdim(temp.img,1);
+      end
       
       % convert from radians centered on 0 to actual Hz
       fieldmapunwraps{p} = double(temp.img)/pi*fmapsc(p);
+      
+      % clean up
+      delete([tmp1 '*']);
+      delete([tmp2 '*']);
     
     else
   
